@@ -46,7 +46,7 @@ def main():
         '__builtin_offsetof(guest_file_tx_type,temp_owned),sizeof(tx)};\n'
     model_file=model_sources/'file_service.c';model_file.write_text(file_source,encoding='utf8')
     sources=[ROOT/'device'/name for name in
-             ['resident_runtime.c','debug_core.c','usb_cdc.c','usb_platform.c','usb_delay.c','input_jobs.c','power_idle.c','gui_jobs.c','file_native.c','file_service.c','file_runtime.c','usb_timer_guard.S']]
+             ['resident_runtime.c','debug_core.c','usb_cdc.c','usb_platform.c','usb_delay.c','input_jobs.c','power_idle.c','gui_jobs.c','file_native.c','file_service.c','file_runtime.c','app_refresh.c','usb_timer_guard.S']]
     sources=[model_gui if path.name=='gui_jobs.c' else model_file if path.name=='file_service.c' else path
              for path in sources]
     sources.extend([model_usb,ROOT/'tests/native_file_guest.c'])

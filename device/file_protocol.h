@@ -13,7 +13,7 @@ enum {
     D88_FILE_GET_OPEN=13u,D88_FILE_GET_READ=14u,
     D88_FILE_PUT_OPEN=15u,D88_FILE_PUT_DATA=16u,
     D88_FILE_FINISH=17u,D88_FILE_ABORT=18u,D88_FILE_POLL=19u,
-    D88_FILE_CANCEL_JOB=20u
+    D88_FILE_CANCEL_JOB=20u,D88_APP_REFRESH=21u
 };
 enum { D88_FILE_IDLE=0u,D88_FILE_QUEUED=1u,D88_FILE_RUNNING=2u,D88_FILE_DONE=3u };
 enum {
@@ -45,6 +45,12 @@ enum {
  * final readback; replacement must preserve/recover original via owned backup.
  * ABORT request{token}, token0 means this session's active transaction; empty
  * result once its handles/owned temporary files have been cleaned by GUI1.
+ * APP_REFRESH21 submits an empty request on this same exclusive GUI job lane.
+ * It requires no active file transaction and the native desktop to be active.
+ * Success data is six LEu32: {version1,before_total,after_total,
+ * before_games,after_games,post_result0}; games is native category8.
+ * Cancel before execution prevents the scan; once scanning starts the complete
+ * scan/post result wins cancellation and is never automatically replayed.
  * Paths are absolute A:\,DBCS-aware GBK; reject NUL,invalid bytes, . / .. path
  * components and overlength. No raw NAND, formatting, arbitrary EXEC or delete.
  */

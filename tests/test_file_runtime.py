@@ -24,6 +24,7 @@ class FileRuntimeTests(unittest.TestCase):
     def test_start_guards_and_owned_callback(self):self.case(0)
     def test_retry_queue_busy_and_surface_bridge_fault(self):self.case(1)
     def test_submit_reply_does_not_run_fs(self):self.case(2)
+    def test_refresh_uses_same_asynchronous_gui_lane(self):self.case(9)
     def test_poll_size_and_job_validation(self):self.case(3)
     def test_cancel_same_job_and_preserve_already_done(self):self.case(4)
     def test_shutdown_waits_for_gui_cleanup_and_unhooks(self):self.case(5)

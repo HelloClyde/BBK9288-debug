@@ -409,6 +409,18 @@ class DeviceCoreTests(unittest.TestCase):
         self.assertEqual(c.file_calls, [(op, b"payload") for op in range(11, 21)])
         self.assertEqual(c.rpc(21, b"payload"), (1, b""))
 
+    def test_refresh_has_separate_capability_and_requires_file_lane(self):
+        c=self.install_files();c.ping()
+        self.assertEqual(c.rpc(21,b''),(1,b''));self.assertFalse(c.file_calls)
+        c.platform.caps |= 128
+        self.lib.dbg_init(C.byref(c.state),C.byref(c.platform));c.ping()
+        self.assertTrue(c.state.caps & 128)
+        self.assertEqual(c.rpc(21,b''),(0,b'file-reply'))
+        self.assertEqual(c.file_calls,[(21,b'')])
+        c.platform.caps &= ~64
+        self.lib.dbg_init(C.byref(c.state),C.byref(c.platform))
+        self.assertFalse(c.state.caps & 128)
+
     def test_file_callback_status_and_output_bound(self):
         for result, status in ((-1, 1), (-2, 2), (-3, 3)):
             c = self.install_files(lambda output, size, result=result: result)

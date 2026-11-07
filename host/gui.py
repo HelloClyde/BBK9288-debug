@@ -19,7 +19,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable
 
-from .client import CAP_FILES, Client, FileError, remote_path, scan_code
+from .client import CAP_APP_REFRESH, CAP_FILES, Client, FileError, remote_path, scan_code, upload_with_refresh
 
 
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
@@ -59,6 +59,7 @@ class DebugWindow:
         self.busy_operation = ""
         self.key_queue = KeyQueue()
         self.file_supported = False
+        self.refresh_supported = False
         self.cancel_event = threading.Event()
         self.closing = False
         self.last_image: Path | None = None
@@ -70,12 +71,15 @@ class DebugWindow:
         self.length = tk.StringVar(value="256")
         self.scale = tk.IntVar(value=2)
         self.keyboard = tk.BooleanVar(value=False)
+        self.auto_refresh = tk.BooleanVar(value=True)
+        self.refresh_state = tk.StringVar(value="刷新程序列表需要支持该能力的新版机端服务")
         self.remote = tk.StringVar(value="A:\\")
         self.transfer = tk.StringVar(value="文件传输需要支持 CAP_FILES 的新版机端服务")
         self.image_caption = tk.StringVar(value="等待设备截图 · 320 × 240")
         self.action_widgets: list[ttk.Widget] = []
         self.key_widgets: list[ttk.Widget] = []
         self.file_widgets: list[ttk.Widget] = []
+        self.refresh_widgets: list[ttk.Widget] = []
         self._build()
         self.worker = threading.Thread(target=self._worker, name="9288-serial", daemon=True)
         self.worker.start()
@@ -149,6 +153,11 @@ class DebugWindow:
         ttk.Checkbutton(controls, text="电脑键盘输入", variable=self.keyboard, command=self._keyboard_focus).pack(anchor="w", pady=(8, 1))
         ttk.Label(controls, text="勾选后点击画面\n支持字母、数字及方向键", foreground="#666666").pack(anchor="w")
         self._button(controls, "查询状态", lambda: self._submit("status")).pack(fill="x", pady=(13, 3))
+        refresh = self._button(controls, "刷新程序列表", lambda: self._submit("refresh-apps"))
+        self.refresh_widgets.append(refresh)
+        refresh.pack(fill="x", pady=3)
+        ttk.Label(controls, textvariable=self.refresh_state, wraplength=165,
+                  foreground="#666666").pack(anchor="w", pady=(0, 3))
         self._button(controls, "停止机端服务", lambda: self._submit("stop")).pack(fill="x", pady=3)
 
         ram = ttk.LabelFrame(debug_page, text="RAM 读取", padding=8)
@@ -175,6 +184,10 @@ class DebugWindow:
                   "上传时若以 \\ 结尾，会追加电脑文件名；下载必须填写完整文件路径。\n"
                   "本版不提供目录浏览。上传不会自动运行程序，默认不覆盖同名文件。",
                   wraplength=760, justify="left").pack(anchor="w", pady=(10, 16))
+        auto_refresh = ttk.Checkbutton(files, text="程序上传后刷新列表（请先返回机端原生桌面）",
+                                       variable=self.auto_refresh)
+        self.refresh_widgets.append(auto_refresh)
+        auto_refresh.pack(anchor="w", pady=(0, 8))
         self.progress = ttk.Progressbar(files, mode="determinate", maximum=100)
         self.progress.pack(fill="x")
         ttk.Label(files, textvariable=self.transfer).pack(anchor="w", pady=(3, 0))
@@ -203,6 +216,8 @@ class DebugWindow:
             widget.configure(state="normal" if allowed else "disabled")
         for widget in self.file_widgets:
             widget.configure(state="normal" if available and self.file_supported else "disabled")
+        for widget in self.refresh_widgets:
+            widget.configure(state="normal" if available and self.refresh_supported else "disabled")
         self.cancel_button.configure(state="normal" if self.busy_operation in ("file-list", "file-get", "file-put") and self.busy else "disabled")
         self.connect_button.configure(state="normal" if not self.connected and not self.busy and not self.closing else "disabled")
         self.disconnect_button.configure(state="normal" if self.connected and not self.busy and not self.closing else "disabled")
@@ -239,6 +254,8 @@ class DebugWindow:
             self.key_queue.clear()
         self.busy = True
         self.busy_operation = operation
+        if operation == "refresh-apps":
+            self.cancel_event.clear()
         if operation in ("file-list", "file-get", "file-put"):
             self.cancel_event.clear()
             self.progress["value"] = 0
@@ -266,7 +283,7 @@ class DebugWindow:
         except ValueError as error:
             messagebox.showerror("路径无效", str(error), parent=self.root)
             return
-        self._submit("file-put", filename, target, False)
+        self._submit("file-put", filename, target, False, self.auto_refresh.get())
 
     def _download(self) -> None:
         try:
@@ -366,6 +383,8 @@ class DebugWindow:
                         result = client.press(scan_code(args[0]))
                     elif operation == "status":
                         result = client.status()
+                    elif operation == "refresh-apps":
+                        result = client.refresh_apps(cancel_event=self.cancel_event)
                     elif operation == "stop":
                         result = client.stop()
                         client.close()
@@ -403,8 +422,15 @@ class DebugWindow:
                         elif operation == "file-get":
                             result = client.get_file(args[0], args[1], progress=progress, cancel_event=self.cancel_event)
                         else:
-                            result = client.put_file(args[0], args[1], replace=args[2], progress=progress,
-                                                     cancel_event=self.cancel_event)
+                            result = upload_with_refresh(client, args[0], args[1], replace=args[2],
+                                                         refresh_apps=bool(args[3]) if len(args) > 3 else False,
+                                                         progress=progress, cancel_event=self.cancel_event)
+                            if result.get("refresh", {}).get("connection_lost"):
+                                try:
+                                    client.close()
+                                except Exception:
+                                    pass
+                                client = None
                     else:
                         raise RuntimeError(f"未知操作：{operation}")
                 self.results.put(("ok", (operation, result)))
@@ -440,19 +466,35 @@ class DebugWindow:
                     self.key_queue.clear()
                     operation, detail = payload
                     self._log(f"{operation} 失败：{detail}。已断开；未自动重试。")
+                    if operation == "refresh-apps":
+                        self.refresh_state.set("可能已完成部分刷新，请核对桌面；不要自动重放或重新上传。")
+                        self._log(self.refresh_state.get())
                 elif kind == "file-error":
                     operation, args, error = payload
                     self.key_queue.clear()
-                    self.transfer.set(str(error))
-                    self._log(f"文件操作未成功：{error}；连接保持，未自动重放。")
+                    if operation == "refresh-apps":
+                        self.refresh_state.set("可能已完成部分刷新，请核对桌面；不要自动重放或重新上传。"
+                                               if error.result in (-703, -709) else
+                                               "刷新未完成；请先返回原生桌面，结束文件事务后再试。")
+                        self._log(self.refresh_state.get())
+                        self._log(f"刷新程序列表未成功：{error}；连接保持，未自动重放。")
+                    else:
+                        self.transfer.set(str(error))
+                        self._log(f"文件操作未成功：{error}；连接保持，未自动重放。")
                     if error.result == -714:
                         self.file_supported = False
+                        self.refresh_supported = False
                         messagebox.showerror("文件提交需要恢复", str(error), parent=self.root)
                     elif operation == "file-put" and error.result == -705 and not args[2] and not self.closing:
                         if messagebox.askyesno("目标文件已存在", f"覆盖机端文件？\n{args[1]}\n机端会保留备份直到校验提交完成。", parent=self.root):
-                            self._submit("file-put", args[0], args[1], True)
+                            self._submit("file-put", args[0], args[1], True,
+                                         bool(args[3]) if len(args) > 3 else False)
                     elif error.result == -715:
-                        self.transfer.set("此机端服务尚不支持该文件操作；上传/下载需要新版服务。")
+                        if operation == "refresh-apps":
+                            self.refresh_supported = False
+                            self.refresh_state.set("当前机端不支持刷新列表，请更新 D88DEBUG。")
+                        else:
+                            self.transfer.set("此机端服务尚不支持该文件操作；上传/下载需要新版服务。")
                 else:
                     operation, result = payload
                     if operation == "connect":
@@ -463,7 +505,14 @@ class DebugWindow:
                     elif operation in ("disconnect", "stop"):
                         self.connected = False
                         self.file_supported = False
+                        self.refresh_supported = False
+                        self.refresh_state.set("未连接")
                         self.key_queue.clear()
+                    if operation in ("connect", "status"):
+                        status = result["status"] if operation == "connect" else result
+                        self.refresh_supported = bool(status["caps"] & CAP_APP_REFRESH)
+                        self.refresh_state.set("可刷新程序列表；请先返回原生桌面。" if self.refresh_supported else
+                                               "当前机端不支持刷新列表，请更新 D88DEBUG。")
                     if operation == "screenshot":
                         self.last_image = Path(result)
                         try:
@@ -476,9 +525,25 @@ class DebugWindow:
                         self._log(f"截图：{result}")
                     elif operation == "press":
                         self._log("按键已接受；刷新截图核对设备画面。")
+                    elif operation == "refresh-apps":
+                        self.refresh_state.set(f"已刷新：程序记录 {result['before_total']} → {result['after_total']}")
+                        self._log(json.dumps(result, ensure_ascii=False))
                     elif operation in ("file-get", "file-put"):
                         self.progress["value"] = 100
-                        self.transfer.set(f"{'上传提交' if operation == 'file-put' else '下载校验'}完成：{result['size']:,} 字节 · CRC32 {result['crc32']}")
+                        detail = f"{'上传提交' if operation == 'file-put' else '下载校验'}完成：{result['size']:,} 字节 · CRC32 {result['crc32']}"
+                        refreshed = result.get("refresh", {})
+                        if refreshed.get("ok"):
+                            detail += "；程序列表已刷新"
+                        elif refreshed.get("reason") == "unsupported":
+                            detail += "；机端不支持刷新，请更新 D88DEBUG"
+                        elif refreshed.get("ok") is False:
+                            detail += "；列表刷新未完成，文件已提交，请勿重复上传"
+                            if refreshed.get("partial_refresh_possible"):
+                                detail += "；可能已完成部分刷新，请核对桌面，勿自动重放"
+                        if refreshed.get("connection_lost"):
+                            self.connected = False
+                            self.key_queue.clear()
+                        self.transfer.set(detail)
                         self._log(json.dumps(result, ensure_ascii=False))
                     else:
                         self._log(json.dumps(result, ensure_ascii=False, default=str) if not isinstance(result, str) else result)

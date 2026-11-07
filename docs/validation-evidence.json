@@ -97,7 +97,7 @@
     "arbitrary RAM writes",
     "arbitrary execution"
   ],
-  "open_source_container": {
+  "v0_1_0_open_source_container": {
     "bytes": 70701,
     "sha256": "eff3fdbc7b563122f4377ffa5e125fd9829eb5e8dd276c042c20fa212c06dd88",
     "payload_offset": 536,
@@ -105,7 +105,7 @@
     "matches_historical_hardware_payload": true,
     "new_container_physically_retested": false
   },
-  "final_public_tests": {
+  "v0_1_0_public_tests": {
     "run": 270,
     "passed": 264,
     "skipped": 6,
@@ -113,5 +113,27 @@
     "errors": 0,
     "includes_s1c33_compilation": true,
     "includes_independent_kf2_tests": true
-  }
+  },
+  "current_runtime": {
+    "schema": 1,
+    "version": "0.2.0",
+    "image_id": "d276dce1",
+    "payload_sha256": "a641ffab2ba16a46d6a1b7ad929785efae15b124afd185739cb96dd7af568df8",
+    "device_sha256": "f6620fc415d025748a50c3df7cd9c94c0ca95c1498d4e4b5726d25e281569a27",
+    "runtime_source_sha256": "5a1d75a3dbb11163c97aa888e13263a7a32e41db282004adb5cd4761e6b1ff46",
+    "host_models_verified": true,
+    "native_gui_refresh_model_verified": true,
+    "physical_app_refresh_verified": true,
+    "container_hardware_retested": true,
+    "validation_scope": "Version-specific host/target/native-GUI1 tests passed. Exact runtime physically verified for manual refresh, upload-then-refresh, restored cached category, active-GET BUSY guard, repeat scan and three ordinary reconnections; STOP/long idle recovery not physically retested.",
+    "evidence": "docs/app-refresh-validation.json"
+  },
+  "current_public_tests": {
+    "run": 302,
+    "passed": 296,
+    "skipped_private_firmware": 6,
+    "failures": 0,
+    "errors": 0
+  },
+  "current_app_refresh_validation": "app-refresh-validation.json"
 }

@@ -1,0 +1,14 @@
+{
+  "schema": 1,
+  "version": "0.2.0",
+  "image_id": "d276dce1",
+  "payload_sha256": "a641ffab2ba16a46d6a1b7ad929785efae15b124afd185739cb96dd7af568df8",
+  "device_sha256": "f6620fc415d025748a50c3df7cd9c94c0ca95c1498d4e4b5726d25e281569a27",
+  "runtime_source_sha256": "5a1d75a3dbb11163c97aa888e13263a7a32e41db282004adb5cd4761e6b1ff46",
+  "host_models_verified": true,
+  "native_gui_refresh_model_verified": true,
+  "physical_app_refresh_verified": true,
+  "container_hardware_retested": true,
+  "validation_scope": "Version-specific host/target/native-GUI1 tests passed. Exact runtime physically verified for manual refresh, upload-then-refresh, restored cached category, active-GET BUSY guard, repeat scan and three ordinary reconnections; STOP/long idle recovery not physically retested.",
+  "evidence": "docs/app-refresh-validation.json"
+}

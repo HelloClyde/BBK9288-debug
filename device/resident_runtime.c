@@ -9,6 +9,7 @@
 #include "input_jobs.h"
 #include "power_idle.h"
 #include "file_runtime.h"
+#include "app_refresh.h"
 #include "task_compat_signatures.h"
 
 #ifndef DEBUG_IMAGE_ID
@@ -103,6 +104,7 @@ static void configure_core(void)
     if(d88_input_available()) {platform.caps|=DBG_CAP_KEY;platform.key=queue_key;}
     if(files_diagnostic.enabled) {
         platform.caps|=DBG_CAP_FILES;
+        if(d88_app_refresh_available()) platform.caps|=DBG_CAP_APP_REFRESH;
         platform.file_rpc=d88_files_rpc;platform.file_reset=d88_files_reset;
     }
     dbg_init(&core,&platform);

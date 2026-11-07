@@ -6,7 +6,7 @@
 
 ## 快速开始
 
-在本仓库右侧 **Releases** 下载 `v0.1.0` 预发布的 Windows ZIP，并按随包 `SHA256SUMS.txt` 核对文件。机端 `9288Debug.exe` 与电脑端 `9288Debug-PC.exe` 是两种程序。
+在本仓库右侧 **Releases** 下载 `v0.2.0` 预发布的 Windows ZIP，并按随包 `SHA256SUMS.txt` 核对文件。机端 `9288Debug.exe` 与电脑端 `9288Debug-PC.exe` 是两种程序。
 
 1. 在 9288 上进入原生 USB 磁盘模式，把 ZIP 内 `device/系统/程序/9288Debug.exe` 复制到设备卷的 **`系统/程序/9288Debug.exe`**。
 2. 等待复制结束，在 Windows 安全弹出磁盘，然后在 **9288 上退出 USB 磁盘界面**。USB 线可以一直插着供电。
@@ -19,6 +19,7 @@
 
 - **截图**：当前已验证的 320×240 LCD 模式，输出灰度图。
 - **按键**：排队发送一组原生 GUI DOWN/UP；排队成功不代表程序已经处理。直接读键盘矩阵的游戏可能不响应。
+- **刷新程序列表**：新增独立按钮与 `refresh-apps` 命令，调用已核对的原生固件扫描器并排队重绘。需先回到系统菜单；上传 `A:\系统\程序\*.exe` 成功后可自动刷新。刷新结果与上传结果分别报告，详见[刷新说明](docs/app-refresh.md)。
 - **文件传输**：输入已知完整 `A:\` 路径，支持上传、下载、取消和显式替换，带分块 CRC、完整 CRC 和提交回读。目录必须已存在；当前不提供目录浏览。
 - **RAM**：只读允许的 SDRAM 范围；写入仅限自己的 512 字节 scratch 区，不提供任意代码执行。
 - **停止**：电脑发送 STOP，或机端再运行一次 D88DEBUG。回复只是停止回执，USB 恢复随后完成。USB 可继续供电；当前构建的真机 STOP/磁盘恢复仍需补测，必要时正常重启。
@@ -44,6 +45,8 @@ python -m host.client --port COM3 status
 python -m host.client --port COM3 file-put .\demo.bin 'A:\demo.bin'
 python -m host.client --port COM3 file-get 'A:\demo.bin' .\readback.bin
 python -m host.client --port COM3 press LEFT
+python -m host.client --port COM3 refresh-apps
+python -m host.client --port COM3 file-put .\demo.exe 'A:\系统\程序\demo.exe' --refresh-apps
 ```
 
 上传默认拒绝同名目标；替换需显式加 `--replace`。若返回 `RECOVERY (-714)`，保留报告中的恢复路径和设备现场，按[文件传输说明](docs/file-transfer.md)处理，不要自动重传或删除临时文件。
@@ -54,7 +57,7 @@ python -m host.client --port COM3 press LEFT
 
 ![9288 真机菜单](docs/screenshots/device-native-menu.png)
 
-![电脑客户端调试页](docs/screenshots/windows-client-offline.png)
+![电脑客户端调试页](docs/screenshots/windows-client-refresh.png)
 
 ## 构建
 
@@ -72,7 +75,7 @@ python scripts/build_release.py
 python scripts/build_release.py --sdk build/dependencies/sdk --toolchain build/dependencies/toolchain
 ```
 
-输出位于 `dist/release`，包括机端 EXE、Windows 客户端、安装 ZIP、构建报告及 SHA-256 清单。设备编译检查 ABI、驻留重定位和多地址独立链接，KF2 包装使用可再生图标。实际参数见 `python scripts/build_release.py --help`。
+输出位于 `dist/release`，包括机端 EXE、Windows 客户端、安装 ZIP、构建报告及 SHA-256 清单。构建也会更新 `dist/9288Debug-PC.exe`，可双击根目录的 `启动9288Debug.cmd` 打开本次客户端。设备编译检查 ABI、驻留重定位和多地址独立链接，KF2 包装使用可再生图标。实际参数见 `python scripts/build_release.py --help`。
 
 常规测试不连接设备，不要求私有固件：
 
@@ -98,9 +101,9 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 ## 验证范围
 
-已验证的设备核心为 `image_id=f9dc2295`。历史原版 EXE 在真机通过 5 次普通重连、20 KiB 文件上传/下载/替换/取消、同名文件保护、GUI 左右键及截图恢复，最终 1294 次请求、0 错误。
+v0.1.0 的历史基线为 `image_id=f9dc2295`，其原版 EXE 在真机通过 5 次普通重连、20 KiB 文件上传/下载/替换/取消、同名文件保护、GUI 左右键及截图恢复，最终 1294 次请求、0 错误。
 
-本次开源包装生成新图标，完整 EXE 摘要因此与历史文件不同。构建记录区分设备载荷比对、容器校验、主机测试和历史真机证据；不将新容器构建通过写成再次完成真机验收。当前构建的 STOP/原生磁盘恢复、长时自动关机恢复等未完成项见[验证记录](docs/validation.md)。
+v0.2.0 新增固件扫描作业，设备运行时已经变化，不能沿用“与旧真机载荷相同”的验证声明。本版按[运行时记录](docs/runtime-validation.json)绑定映像身份和 SHA，主机回归、S1C33 编译/重定位、原生 GUI1 扫描模型与真机测试分别记录。当前版本验证范围见[刷新说明](docs/app-refresh.md)和[验证记录](docs/validation.md)；STOP/原生磁盘恢复及长期关机恢复的旧边界仍保留。
 
 ## 感谢
 

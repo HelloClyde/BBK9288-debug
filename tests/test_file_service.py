@@ -87,6 +87,40 @@ class FileServiceTests(unittest.TestCase):
         self.assertEqual(self.poll(i).state,1);self.assertEqual(self.lib.model_fs_calls(),0)
         j=C.c_uint();self.assertEqual(self.lib.d88_file_submit(13,b'x',1,C.byref(j)),BUSY)
         self.lib.d88_file_cancel();r=self.drain(i);self.assertEqual(r.result,CANCELLED);self.assertEqual(self.lib.model_fs_calls(),0);self.assert_closed()
+    def test_refresh_is_gui_only_and_returns_versioned_counts(self):
+        i=self.submit(21,b'');self.assertEqual(self.lib.model_refresh_calls(),0)
+        self.assertEqual(self.lib.model_fs_calls(),0);self.assertEqual(self.poll(i).state,1)
+        r=self.drain(i);self.assertEqual((r.result,r.length),(0,24))
+        self.assertEqual(struct.unpack('<6I',bytes(r.data[:r.length])),(1,7,8,2,3,0))
+        self.assertEqual(self.lib.model_refresh_calls(),1);self.assertEqual(self.lib.model_fs_calls(),0)
+        self.assert_closed()
+    def test_refresh_rejects_open_file_transaction_without_replacing_result(self):
+        t=self.put_open(b'keep');previous=self.lib.model_phase()
+        i=C.c_uint(77);self.assertEqual(self.lib.d88_file_submit(21,b'',0,C.byref(i)),BUSY)
+        self.assertEqual(i.value,0);self.assertEqual(self.lib.model_phase(),previous)
+        self.assertEqual(self.lib.model_refresh_calls(),0)
+        self.put_data(t,b'keep');self.assertEqual(self.job(17,words(t)).result,0)
+        self.assertEqual(self.content(DEFAULT),b'keep');self.assert_closed()
+    def test_refresh_cancel_before_execution_has_no_scanner_call(self):
+        i=self.submit(21,b'');self.lib.d88_file_cancel();r=self.drain(i)
+        self.assertEqual(r.result,CANCELLED);self.assertEqual(self.lib.model_refresh_calls(),0)
+        self.assert_closed()
+    def test_refresh_completion_wins_cancel_received_inside_scanner(self):
+        self.lib.model_refresh_outcome(0,1);r=self.job(21,b'')
+        self.assertEqual((r.result,r.length),(0,24));self.assertEqual(self.lib.model_refresh_calls(),1)
+        self.assert_closed()
+    def test_refresh_failure_is_not_replayed(self):
+        self.lib.model_refresh_outcome(PROFILE,0);r=self.job(21,b'')
+        self.assertEqual((r.result,r.length),(PROFILE,0))
+        self.assertEqual(self.lib.model_refresh_calls(),1);self.lib.model_step()
+        self.assertEqual(self.lib.model_refresh_calls(),1);self.assert_closed()
+    def test_refresh_rejects_payload_and_profile_loss_before_scan(self):
+        i=C.c_uint();self.assertEqual(self.lib.d88_file_submit(21,b'x',1,C.byref(i)),ARG)
+        self.assertEqual(i.value,0)
+        i=self.submit(21,b'');self.lib.model_profile(0);r=self.drain(i)
+        self.assertEqual(r.result,PROFILE);self.assertEqual(self.lib.model_refresh_calls(),0)
+        self.lib.model_profile(1);self.assert_closed()
+
     def test_upload_multichunk_and_final_readback(self):
         data=bytes(range(251))*7;r=self.put(data)
         self.assertEqual(r.result,0);self.assertEqual(self.content(DEFAULT),data);self.assertEqual(self.names(),[DEFAULT])

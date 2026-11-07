@@ -1,4 +1,4 @@
-"""Build unchanged validated runtime with an independent KF2 packaging adapter."""
+"""Build a version-reviewed runtime with an independent KF2 packaging adapter."""
 from __future__ import annotations
 
 import argparse
@@ -13,14 +13,21 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.kf2_container import inspect, pack
 
-VERIFIED_PAYLOAD_SHA256 = "f86c57e384562547e5af756439b3298e08dde9b5ea2957e662e4ad858800c402"
-VERIFIED_IMAGE_ID = "f9dc2295"
+HISTORICAL_PAYLOAD_SHA256 = "f86c57e384562547e5af756439b3298e08dde9b5ea2957e662e4ad858800c402"
+HISTORICAL_IMAGE_ID = "f9dc2295"
+RUNTIME_RECORD = ROOT / "docs/runtime-validation.json"
+
+
+def runtime_record() -> dict:
+    return json.loads(RUNTIME_RECORD.read_text(encoding="utf-8"))
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--sdk", type=Path, default=ROOT / "build/dependencies/sdk")
     parser.add_argument("--toolchain", type=Path, default=ROOT / "build/dependencies/toolchain")
+    parser.add_argument("--record-candidate", action="store_true",
+                        help="Build an unapproved candidate; release builds never use this flag")
     args = parser.parse_args()
     sdk, toolchain = args.sdk.resolve(), args.toolchain.resolve()
     if not (sdk / "Down_Include/Dsys.h").is_file():
@@ -51,15 +58,26 @@ def main() -> None:
     container = inspect(data)
     payload_sha = hashlib.sha256(data[container["code_offset"]:]).hexdigest()
     service = json.loads((ROOT / "dist/service-build.json").read_text(encoding="utf-8"))
-    if service["image_id"] != VERIFIED_IMAGE_ID or payload_sha != VERIFIED_PAYLOAD_SHA256:
-        raise SystemExit("Release runtime differs from recorded hardware-verified payload; new validation required")
-    report = {"result": "PASS", "version": (ROOT / "VERSION").read_text().strip(),
+    expected = runtime_record() if RUNTIME_RECORD.is_file() else {}
+    matched = (expected.get("image_id") == service["image_id"] and
+               expected.get("payload_sha256") == payload_sha and
+               expected.get("device_sha256") == hashlib.sha256(data).hexdigest() and
+               expected.get("runtime_source_sha256") == service["source_sha256"] and
+               expected.get("version") == (ROOT / "VERSION").read_text().strip())
+    if not matched and not args.record_candidate:
+        raise SystemExit("Runtime differs from this version's reviewed candidate record; validate and record the new build")
+    report = {"result": "PASS" if matched else "CANDIDATE", "version": (ROOT / "VERSION").read_text().strip(),
               "file": app.name, "sha256": hashlib.sha256(data).hexdigest(),
               "image_id": service["image_id"], "container": container,
-              "payload_sha256": payload_sha, "matches_recorded_hardware_payload": True,
+              "payload_sha256": payload_sha, "runtime_source_sha256": service["source_sha256"],
+              "matches_recorded_runtime": matched,
+              "matches_recorded_hardware_payload": payload_sha == HISTORICAL_PAYLOAD_SHA256,
+              "historical_hardware_baseline": {"image_id": HISTORICAL_IMAGE_ID,
+                                               "payload_sha256": HISTORICAL_PAYLOAD_SHA256},
+              "physical_app_refresh_verified": bool(matched and expected.get("physical_app_refresh_verified")),
               "packaging": "independent Python KF2 encoder and original terminal icons",
-              "container_hardware_retested": False,
-              "validation_scope": "byte-identical executable payload; new icon/container statically validated"}
+              "container_hardware_retested": bool(matched and expected.get("container_hardware_retested")),
+              "validation_scope": expected.get("validation_scope", "unapproved development candidate") if matched else "unapproved development candidate"}
     (ROOT / "dist/device-build-validation.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
     print(json.dumps(report, indent=2))
 

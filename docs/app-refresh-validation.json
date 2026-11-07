@@ -1,0 +1,71 @@
+{
+  "version": "0.2.0",
+  "result": "PASS",
+  "image_id": "d276dce1",
+  "device_sha256": "f6620fc415d025748a50c3df7cd9c94c0ca95c1498d4e4b5726d25e281569a27",
+  "payload_sha256": "a641ffab2ba16a46d6a1b7ad929785efae15b124afd185739cb96dd7af568df8",
+  "runtime_source_sha256": "5a1d75a3dbb11163c97aa888e13263a7a32e41db282004adb5cd4761e6b1ff46",
+  "host_tests": {
+    "run": 302,
+    "passed": 296,
+    "skipped_private_firmware": 6,
+    "failures": 0,
+    "errors": 0
+  },
+  "native_gui_model": {
+    "result": "PASS",
+    "before_total": 76,
+    "after_total": 78,
+    "before_games": 10,
+    "after_games": 11,
+    "repeat_without_duplicates": true,
+    "open_put_busy": -702
+  },
+  "physical": {
+    "result": "PASS",
+    "caps": 255,
+    "manual_refresh": true,
+    "auto_refresh_after_committed_program_upload": true,
+    "test_scope": "temporary category change of this project's existing D88REF helper; exact original restored",
+    "test_category_before": 9,
+    "test_category_uploaded": 8,
+    "test_category_restored": 9,
+    "auto_upload_result": {
+      "version": 1,
+      "before_total": 94,
+      "after_total": 94,
+      "before_games": 20,
+      "after_games": 21,
+      "post_result": 0
+    },
+    "restore_result": {
+      "version": 1,
+      "before_total": 94,
+      "after_total": 94,
+      "before_games": 21,
+      "after_games": 20,
+      "post_result": 0
+    },
+    "open_get_busy": -702,
+    "repeat_without_duplicates": true,
+    "helper_restored": true,
+    "restored_helper_sha256": "2de72b91c93f1c98c190bc7221f768e846b1431928c4461aff0d75040281d973",
+    "ordinary_reconnections": 3,
+    "final_status": {
+      "image_id": 3531005153,
+      "caps": 255,
+      "requests": 500,
+      "errors": 0,
+      "uptime_ms": 0,
+      "snapshot_token": 0,
+      "snapshot_bytes": 0,
+      "flags": 14
+    },
+    "physical_evidence_sha256": "6b2236115db962f7f66c62daf4ab915d59239e5880da79a9c5494a1f6b0d2310"
+  },
+  "not_retested": [
+    "physical STOP/native USB disk restoration",
+    "long idle power-off and post-STOP countdown recovery"
+  ],
+  "raw_private_evidence_included": false
+}

@@ -131,10 +131,10 @@ class Files:
 
 
 class HostFilesTests(unittest.TestCase):
-    def connect(self):
+    def connect(self, *, timeout=5.0):
         peer = Files()
         transport = Transport(peer.handler, fragment=17)
-        c = client.Client(transport=transport, timeout=0.1)
+        c = client.Client(transport=transport, timeout=timeout)
         self.addCleanup(c.close)
         sleep = patch.object(client.time, "sleep", return_value=None)
         sleep.start()
@@ -368,7 +368,7 @@ class HostFilesTests(unittest.TestCase):
         self.assertEqual(bytes.fromhex(result["recovery_data_hex"]), error.payload)
 
     def test_finish_budget_allows_long_verification_without_extending_rpc_timeout(self):
-        c, peer, transport = self.connect()
+        c, peer, transport = self.connect(timeout=0.1)
         original = peer.handler
         clock = [0.0]
         def handler(op, body):
@@ -392,7 +392,7 @@ class HostFilesTests(unittest.TestCase):
         self.assertFalse(c.broken)
 
     def test_nonfinish_job_retains_shorter_budget(self):
-        c, peer, transport = self.connect()
+        c, peer, transport = self.connect(timeout=0.1)
         original = peer.handler
         clock = [0.0]
         def handler(op, body):

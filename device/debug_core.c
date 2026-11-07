@@ -172,7 +172,8 @@ static dbg_u32 dispatch(dbg_state *s, dbg_u32 op, const dbg_u8 *body,
         put32(output + 4, DBG_SCRATCH_BYTES);
         return 8u;
     default:
-        if(op>=11u && op<=20u && (s->caps&DBG_CAP_FILES) && s->platform.file_rpc) {
+        if(((op>=11u && op<=20u && (s->caps&DBG_CAP_FILES)) ||
+            (op==21u && (s->caps&DBG_CAP_APP_REFRESH))) && s->platform.file_rpc) {
             file_length=0;
             result=s->platform.file_rpc(s->platform.context,op,body,length,output,&file_length);
             if(result) {*status=callback_error(result);return 0;}
@@ -235,7 +236,8 @@ void dbg_init(dbg_state *s, const dbg_platform *platform)
     if (!platform->key) s->caps &= ~DBG_CAP_KEY;
     if (!platform->capture || !platform->snapshot || !platform->snapshot_capacity)
         s->caps &= ~DBG_CAP_SCREEN;
-    if (!platform->file_rpc || !platform->file_reset) s->caps &= ~DBG_CAP_FILES;
+    if (!platform->file_rpc || !platform->file_reset) s->caps &= ~(DBG_CAP_FILES|DBG_CAP_APP_REFRESH);
+    if (!(s->caps&DBG_CAP_FILES)) s->caps &= ~DBG_CAP_APP_REFRESH;
 }
 
 unsigned dbg_feed(dbg_state *s, const dbg_u8 *input, unsigned length)

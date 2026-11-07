@@ -53,7 +53,7 @@ int d88_files_rpc(void *context,unsigned opcode,const unsigned char *input,unsig
     if(!output || !output_length || (!input && length)) return -1;
     *output_length=0;
     if(!files_diagnostic.enabled || files_diagnostic.shutdown_requested) return -2;
-    if(opcode>=D88_FILE_LIST_OPEN && opcode<=D88_FILE_ABORT) {
+    if((opcode>=D88_FILE_LIST_OPEN && opcode<=D88_FILE_ABORT) || opcode==D88_APP_REFRESH) {
         id=0;result=d88_file_submit(opcode,input,length,&id);
         put32(output,result?0u:id);put32(output+4u,(unsigned)result);*output_length=8u;
         if(!result) (void)d88_files_poll();

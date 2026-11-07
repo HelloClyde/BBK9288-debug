@@ -130,6 +130,8 @@ def main() -> None:
     device = ROOT / "dist/9288Debug.exe"
     shutil.copyfile(device, output / device.name)
     shutil.copyfile(client, output / client.name)
+    # Keep the source-tree launcher on this freshly built client as well.
+    shutil.copyfile(client, ROOT / "dist" / client.name)
     archive = output / f"BBK9288-debug-{version}-windows-x64.zip"
     explicit = [(device, "device/系统/程序/9288Debug.exe"), (client, "pc/9288Debug-PC.exe")]
     for name in ("README.md", "LICENSE", "NOTICE.md", "VERSION"):

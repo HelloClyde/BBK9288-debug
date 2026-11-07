@@ -1,6 +1,7 @@
 /* One GUI-owned FS transaction; worker-side operations only exchange metadata. */
 #include "file_service.h"
 #include "file_native.h"
+#include "app_refresh.h"
 typedef unsigned char byte;
 enum { TX_NONE,TX_GET,TX_PUT };
 enum {
@@ -164,6 +165,22 @@ static void moved(void)
 static void parse_job(void)
 {
  unsigned op=request_opcode,n=request_bytes,token;
+ if(op==D88_APP_REFRESH) {
+  d88_app_refresh_result refreshed;int r;
+  if(n) {set_done(D88_FILE_E_ARGUMENT,0);return;}
+  if(active) {set_done(D88_FILE_E_BUSY,0);return;}
+  /* The scanner runs once, unlocked in GUI1. Once begun it cannot be rolled
+   * back: a completed refresh wins a DTR/STOP/cancel arriving inside the call. */
+  zero(&refreshed,sizeof(refreshed));
+  r=d88_app_refresh_execute(&refreshed);
+  if(r) {set_done(r,0);return;}
+  put32(reply.data,1u);put32(reply.data+4u,refreshed.before_total);
+  put32(reply.data+8u,refreshed.after_total);
+  put32(reply.data+12u,refreshed.before_cat8);
+  put32(reply.data+16u,refreshed.after_cat8);
+  put32(reply.data+20u,refreshed.post_result);
+  set_done(0,24u);return;
+ }
  if(op==D88_FILE_LIST_OPEN || op==D88_FILE_LIST_NEXT) {set_done(D88_FILE_E_UNSUPPORTED,0);return;}
  if(op==D88_FILE_ABORT) {
   if(n!=4u) {set_done(D88_FILE_E_ARGUMENT,0);return;}
@@ -416,13 +433,15 @@ int d88_file_submit(unsigned op,const byte *payload,unsigned bytes,unsigned *id)
 {
  int r=0;
  if(id) *id=0;
- if(!id || !payload || bytes>sizeof(request) || op<D88_FILE_LIST_OPEN || op>D88_FILE_ABORT)
-  return D88_FILE_E_ARGUMENT;
+ if(!id || (!payload && (bytes || op!=D88_APP_REFRESH)) || bytes>sizeof(request) ||
+    !((op>=D88_FILE_LIST_OPEN && op<=D88_FILE_ABORT) || op==D88_APP_REFRESH) ||
+    (op==D88_APP_REFRESH && bytes)) return D88_FILE_E_ARGUMENT;
  if(fatal_error) return fatal_error;
  if(cleanup_error) return cleanup_error;
  if(!d88_file_available()) {if(active) fatal_error=D88_FILE_E_PROFILE;return D88_FILE_E_PROFILE;}
  if(d88_file_native_lock()!=0) {if(active) fatal_error=D88_FILE_E_PROFILE;return D88_FILE_E_PROFILE;}
- if(reply.state==D88_FILE_QUEUED || reply.state==D88_FILE_RUNNING || cancelled) r=D88_FILE_E_BUSY;
+ if(reply.state==D88_FILE_QUEUED || reply.state==D88_FILE_RUNNING || cancelled ||
+    (op==D88_APP_REFRESH && active)) r=D88_FILE_E_BUSY;
  else if(!next_job) r=D88_FILE_E_LIMIT;
  else {
   copy(request,payload,bytes);request_bytes=bytes;request_opcode=op;phase=P_START;

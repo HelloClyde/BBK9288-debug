@@ -21,7 +21,7 @@ def main():
     output=ROOT/"build/service";output.mkdir(parents=True,exist_ok=True)
     dist=ROOT/"dist";dist.mkdir(exist_ok=True)
     headers(sdk,output/"sdk-headers")
-    resident_sources=[ROOT/"device"/x for x in ["resident_runtime.c","debug_core.c","usb_cdc.c","usb_platform.c","usb_delay.c","input_jobs.c","power_idle.c","gui_jobs.c","file_native.c","file_service.c","file_runtime.c","usb_timer_guard.S"]]
+    resident_sources=[ROOT/"device"/x for x in ["resident_runtime.c","debug_core.c","usb_cdc.c","usb_platform.c","usb_delay.c","input_jobs.c","power_idle.c","gui_jobs.c","file_native.c","file_service.c","file_runtime.c","app_refresh.c","usb_timer_guard.S"]]
     launcher_sources=[ROOT/"device"/x for x in ["startup.c","launcher.c","resident_loader.c","usb_log.c"]]
     source_files=resident_sources+launcher_sources+sorted((ROOT/"device").rglob("*.h"))+[
         ROOT/"device/link.ld",ROOT/"device/resident_link.ld",ROOT/"build_service.py",ROOT/"tools/build_resident.py"]

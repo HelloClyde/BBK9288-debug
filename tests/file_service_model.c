@@ -66,7 +66,8 @@ static struct {unsigned live,index,offset,writable;} handles[HANDLES];
 static unsigned profile_ok,in_gui,lock_depth,fs_calls,bad_calls,close_calls,rename_calls,remove_calls;
 static unsigned fail_op,fail_nth,fail_mode,fail_seen,last_errno,cancel_remove,fail2_nth,fail2_mode;
 static unsigned counts[16];
-static unsigned max_read;
+static unsigned max_read,refresh_calls,refresh_cancel;
+static int refresh_result;
 static unsigned cancel_call_op,cancel_call_nth,cancel_call_seen,cancel_call_injections;
 enum { OP_OPEN=1,OP_READ,OP_WRITE,OP_CLOSE,OP_EXISTS,OP_RENAME,OP_REMOVE,OP_SEEK,OP_TELL };
 static int same(const char *a,const char *b)
@@ -183,6 +184,18 @@ int d88_file_native_find_first(const char *p,unsigned a,d88_native_find *f)
 {(void)p;(void)a;(void)f;assert(0);return -1;}
 int d88_file_native_find_next(d88_native_find *f) {(void)f;assert(0);return -1;}
 int d88_file_native_find_close(d88_native_find *f) {(void)f;assert(0);return -1;}
+int d88_app_refresh_available(void) {return (int)profile_ok;}
+int d88_app_refresh_execute(d88_app_refresh_result *out)
+{
+ assert(in_gui && !lock_depth);refresh_calls++;
+ if(refresh_cancel) d88_file_cancel();
+ if(refresh_result) return refresh_result;
+ out->before_total=7u;out->after_total=8u;
+ out->before_cat8=2u;out->after_cat8=3u;
+ out->scanner_calls=out->post_calls=1u;out->post_result=0u;out->home=0x02501000u;return 0;
+}
+unsigned model_refresh_calls(void) {return refresh_calls;}
+void model_refresh_outcome(int result,unsigned cancel) {refresh_result=result;refresh_cancel=cancel;}
 void model_reset(void)
 {
  memset(files,0,sizeof(files));memset(handles,0,sizeof(handles));memset(counts,0,sizeof(counts));
@@ -190,7 +203,7 @@ void model_reset(void)
  active=cancelled=0;fatal_error=cleanup_error=0;phase=P_START;next_job=next_token=1;
  profile_ok=1;in_gui=lock_depth=fs_calls=bad_calls=close_calls=rename_calls=remove_calls=0;
  fail_op=fail_nth=fail_mode=fail_seen=last_errno=cancel_remove=fail2_nth=fail2_mode=0;
- max_read=0;
+ max_read=refresh_calls=refresh_cancel=0;refresh_result=0;
  cancel_call_op=cancel_call_nth=cancel_call_seen=cancel_call_injections=0;
 }
 void model_step(void) {assert(!in_gui && !lock_depth);in_gui=1;d88_file_gui_step();in_gui=0;assert(!lock_depth);}

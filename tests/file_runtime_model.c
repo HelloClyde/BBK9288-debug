@@ -15,7 +15,7 @@ static d88_file_reply model_reply;
 void d88_file_init(void) {}
 int d88_file_available(void) {return available;}
 int d88_file_submit(unsigned op,const unsigned char *data,unsigned length,unsigned *id)
-{assert(op>=11u && op<=18u);assert(data || !length);submits++;*id=9;return submit_result;}
+{assert((op>=11u && op<=18u) || op==21u);assert(data || !length);submits++;*id=9;return submit_result;}
 int d88_file_poll(unsigned id,d88_file_reply *out)
 {assert(id==9u);*out=model_reply;return file_poll_result;}
 void d88_file_cancel(void) {cancels++;}
@@ -88,6 +88,10 @@ int main(int argc,char **argv)
    fatal_error=-709;
    assert(d88_files_poll()==-709);assert(!requests && !polls);
    assert(d88_files_shutdown_poll()==-709);assert(files_diagnostic.enabled && !stops);
+  } else if(which==9) {
+   assert(!d88_files_rpc(0,21,0,0,output,&n));
+   assert(n==8u && get32(output)==9u && !get32(output+4));
+   assert(submits==1u && !steps);
   } else assert(0);
  }
  puts("PASS");return 0;

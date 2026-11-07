@@ -20,7 +20,8 @@ typedef char dbg_u16_must_be_16_bits[(sizeof(dbg_u16) == 2) ? 1 : -1];
 #define DBG_CAP_STOP     (1u << 4)
 #define DBG_CAP_SCRATCH  (1u << 5)
 #define DBG_CAP_FILES    (1u << 6)
-#define DBG_CAP_ALL      0x7fu
+#define DBG_CAP_APP_REFRESH (1u << 7)
+#define DBG_CAP_ALL      0xffu
 #define DBG_FLAG_FOREGROUND (1u << 0)
 #define DBG_FLAG_HARDWARE_UNVERIFIED (1u << 1)
 #define DBG_FLAG_UPTIME_UNAVAILABLE (1u << 2)

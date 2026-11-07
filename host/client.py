@@ -26,6 +26,11 @@ VID, PID = 0x1209, 0x9288
 MAX_PAYLOAD = 512
 CAP_READ, CAP_WRITE, CAP_KEY, CAP_SCREEN, CAP_STOP, CAP_SCRATCH = (1 << bit for bit in range(6))
 CAP_FILES = 1 << 6
+CAP_APP_REFRESH = 1 << 7
+APP_REFRESH = 21
+REFRESH_PARTIAL_WARNING = ("Application records may already be partially refreshed; inspect the device desktop. "
+                           "Do not automatically replay refresh or re-upload the program.")
+APP_REFRESH_FIELDS = ("version", "before_total", "after_total", "before_games", "after_games", "post_result")
 FILE_PATH_MAX, FILE_CHUNK, FILE_MAX_BYTES = 240, 480, 16 * 1024 * 1024
 FILE_LIST_OPEN, FILE_LIST_NEXT, FILE_GET_OPEN, FILE_GET_READ = 11, 12, 13, 14
 FILE_PUT_OPEN, FILE_PUT_DATA, FILE_FINISH, FILE_ABORT, FILE_POLL, FILE_CANCEL = 15, 16, 17, 18, 19, 20
@@ -63,6 +68,8 @@ class FileError(RuntimeError):
                  -712: "limit exceeded", -713: "commit failed", -714: "recovery required",
                  -715: "unsupported"}
         detail = f"; recovery data={self.payload.hex()}" if self.payload else ""
+        if opcode == APP_REFRESH and result in (-703, -709):
+            detail += "; " + REFRESH_PARTIAL_WARNING
         super().__init__(f"File job {job_id}, opcode {opcode}: {names.get(result, 'failed')} ({result}){detail}")
 
 
@@ -346,6 +353,24 @@ class Client:
         bounded(scan, 1, 127, "scan code")
         self._empty(4, U32.pack(scan))
 
+    def refresh_apps(self, *, cancel_event=None) -> dict:
+        """Ask GUI1 to scan program records once while the native desktop is idle."""
+        with self._lock:
+            if self._file_recovery:
+                raise FileError(APP_REFRESH, -714)
+            if self._file_transaction_owned:
+                raise FileError(APP_REFRESH, -702)
+            if not self.status()["caps"] & CAP_APP_REFRESH:
+                raise FileError(APP_REFRESH, -715)
+            values = self._file_words(APP_REFRESH, b"", len(APP_REFRESH_FIELDS), cancel_event)
+            result = dict(zip(APP_REFRESH_FIELDS, values))
+            if (result["version"] != 1 or result["post_result"] != 0 or
+                    any(result[name] > 128 for name in APP_REFRESH_FIELDS[1:5]) or
+                    result["before_games"] > result["before_total"] or
+                    result["after_games"] > result["after_total"]):
+                self._fail("Invalid application refresh report")
+            return result
+
     def _require_files(self) -> None:
         if self._file_recovery:
             raise FileError(FILE_LIST_OPEN, -714)
@@ -606,6 +631,49 @@ class Client:
         self._empty(8)
 
 
+def is_program_path(remote: str) -> bool:
+    """Only downloaded EXEs directly inside the native program directory qualify."""
+    canonical, _ = remote_path(remote)
+    parts = canonical[3:].split("\\")
+    return (len(parts) == 3 and parts[0] == "系统" and parts[1] == "程序" and
+            parts[2].lower().endswith(".exe"))
+
+
+def upload_with_refresh(client: Client, local: str | Path, remote: str, *,
+                        replace: bool = False, refresh_apps: bool = False,
+                        progress=None, cancel_event=None) -> dict:
+    """Preserve a committed upload result even when the separate refresh fails."""
+    result = client.put_file(local, remote, replace=replace, progress=progress,
+                             cancel_event=cancel_event)
+    if not refresh_apps:
+        return result
+    result = dict(result)
+    if not is_program_path(result["remote"]):
+        result["refresh"] = {"requested": True, "attempted": False,
+                             "reason": "not_program_path"}
+        return result
+    try:
+        refreshed = client.refresh_apps(cancel_event=cancel_event)
+        result["refresh"] = {"requested": True, "attempted": True, "ok": True,
+                             "result": refreshed}
+    except Exception as error:
+        result["refresh"] = {"requested": True, "attempted": True, "ok": False,
+                             "error_type": type(error).__name__, "error": str(error),
+                             "connection_lost": client.broken,
+                             "outcome_unknown": isinstance(error, (ProtocolError, TimeoutError, OSError)) or
+                                                isinstance(error, FileError) and error.result in (-703, -709)}
+        if result["refresh"]["outcome_unknown"]:
+            result["refresh"].update(partial_refresh_possible=True, warning=REFRESH_PARTIAL_WARNING)
+        if isinstance(error, FileError):
+            result["refresh"].update(file_result=error.result, file_job_id=error.job_id,
+                                     recovery_required=error.result == -714,
+                                     recovery_data_hex=error.payload.hex())
+            if error.result == -715:
+                result["refresh"]["attempted"] = False
+                result["refresh"]["reason"] = "unsupported"
+    return result
+
+
 KEYS = {"ESC": 1, "ESCAPE": 1, "ENTER": 28, "RETURN": 28, "SPACE": 57,
         "BACKSPACE": 14, "TAB": 15, "UP": 103, "DOWN": 108,
         "LEFT": 105, "RIGHT": 106, "HOME": 102, "END": 107,
@@ -632,7 +700,7 @@ def parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=float, default=5.0)
     p.add_argument("--report", type=Path, help="Save JSON result, including failures")
     commands = p.add_subparsers(dest="command", required=True)
-    for name in ("list", "ping", "status", "stop", "scratch"):
+    for name in ("list", "ping", "status", "stop", "scratch", "refresh-apps"):
         commands.add_parser(name)
     read = commands.add_parser("read")
     read.add_argument("address", type=integer)
@@ -656,6 +724,8 @@ def parser() -> argparse.ArgumentParser:
     upload.add_argument("local", type=Path)
     upload.add_argument("remote")
     upload.add_argument("--replace", action="store_true", help="Explicitly replace the remote target with backup/recovery")
+    upload.add_argument("--refresh-apps", action="store_true",
+                        help="After a committed program EXE upload, refresh native application records")
     return p
 
 
@@ -677,12 +747,15 @@ def execute(args: argparse.Namespace) -> dict:
             return {"scan": args.scan, "queued": True}
         if args.command == "screenshot":
             return client.screenshot(args.output)
+        if args.command == "refresh-apps":
+            return client.refresh_apps()
         if args.command == "file-list":
             return {"entries": client.list_files(args.remote)}
         if args.command == "file-get":
             return client.get_file(args.remote, args.local)
         if args.command == "file-put":
-            return client.put_file(args.local, args.remote, replace=args.replace)
+            return upload_with_refresh(client, args.local, args.remote, replace=args.replace,
+                                       refresh_apps=args.refresh_apps)
         if args.command == "read":
             data = client.read_memory(args.address, args.count)
             result = {"address": args.address, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()}
@@ -708,7 +781,10 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         result = {"ok": False, "command": args.command, "error_type": type(exc).__name__, "error": str(exc),
                   "outcome_unknown": isinstance(exc, (ProtocolError, TimeoutError, OSError)) or
-                                     isinstance(exc, FileError) and exc.result == -714}
+                                     isinstance(exc, FileError) and (exc.result == -714 or
+                                         exc.opcode == APP_REFRESH and exc.result in (-703, -709))}
+        if args.command == "refresh-apps" and result["outcome_unknown"]:
+            result.update(partial_refresh_possible=True, refresh_warning=REFRESH_PARTIAL_WARNING)
         if isinstance(exc, FileError):
             result.update(file_result=exc.result, file_job_id=exc.job_id,
                           recovery_required=exc.result == -714, recovery_data_hex=exc.payload.hex())

@@ -11,7 +11,7 @@ import zipfile
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.kf2_container import inspect
-from scripts.build_device import VERIFIED_IMAGE_ID, VERIFIED_PAYLOAD_SHA256
+from scripts.build_device import runtime_record
 
 
 def require(condition: bool, message: str) -> None:
@@ -34,17 +34,24 @@ def verify(directory: Path, version: str, source_sha: str | None = None) -> dict
     for name, digest in entries.items():
         require(hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest,
                 "Asset SHA-256 mismatch: " + name)
+    expected_runtime = runtime_record()
+    require(expected_runtime.get("version") == version, "Wrong runtime record version")
     device = (directory / "9288Debug.exe").read_bytes()
     container = inspect(device)
-    require(hashlib.sha256(device[container["code_offset"]:]).hexdigest() == VERIFIED_PAYLOAD_SHA256,
-            "Actual released payload differs from the recorded hardware-verified executable")
+    require(hashlib.sha256(device[container["code_offset"]:]).hexdigest() == expected_runtime["payload_sha256"],
+            "Actual released payload differs from this version's reviewed runtime")
     report = json.loads((directory / "build-report.json").read_text(encoding="utf-8"))
     require(report.get("result") == "PASS" and report.get("version") == version, "Invalid build result/version")
     if source_sha:
         require(report.get("source_sha") == source_sha, "Wrong release source commit")
+    require(report.get("device", {}).get("result") == "PASS", "Unapproved runtime candidate")
+    require(expected_runtime.get("device_sha256") == entries["9288Debug.exe"], "Wrong recorded device executable")
     require(report.get("device", {}).get("sha256") == entries["9288Debug.exe"], "Wrong device evidence")
-    require(report["device"].get("image_id") == VERIFIED_IMAGE_ID, "Wrong runtime image identity")
-    require(report["device"].get("matches_recorded_hardware_payload") is True, "Missing runtime byte comparison")
+    require(report["device"].get("image_id") == expected_runtime["image_id"], "Wrong runtime image identity")
+    require(report["device"].get("matches_recorded_runtime") is True, "Missing runtime byte comparison")
+    require(report["device"].get("runtime_source_sha256") == expected_runtime["runtime_source_sha256"], "Wrong runtime source evidence")
+    for key in ("physical_app_refresh_verified", "container_hardware_retested"):
+        require(report["device"].get(key) is bool(expected_runtime.get(key)), "Wrong physical verification scope: " + key)
     require(report.get("frozen_gui", {}).get("result") == "PASS" and
             report["frozen_gui"].get("serial_opened") is False, "Missing device-free frozen GUI test")
     require(report.get("firmware_or_nand_included") is False and
