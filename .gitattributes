@@ -1,0 +1,6 @@
+* text=auto eol=lf
+# The validated image_id hashes exact source bytes, including line endings.
+device/** -text
+build_service.py -text
+tools/build_resident.py -text
+*.png -text

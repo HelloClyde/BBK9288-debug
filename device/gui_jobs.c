@@ -1,0 +1,289 @@
+/* Captured 0215EBC4 desktop bridge; no SDK GUI table-tail assumptions. */
+#include "gui_jobs.h"
+typedef unsigned int u32;
+typedef unsigned char u8;
+typedef char gui_word_is_u32[(sizeof(u32)==4u)?1:-1];
+#ifndef DEBUG_IMAGE_ID
+#define DEBUG_IMAGE_ID 0x47554a31u
+#endif
+#define PRIVATE_MESSAGE D88_GUI_JOBS_PRIVATE_MESSAGE
+#define IMAGE_COOKIE ((u32)DEBUG_IMAGE_ID^D88_GUI_JOBS_COOKIE_MASK)
+#define HOOK_SLOT 0x0203857cu
+#define TCB_BASE 0x02068b34u
+#define GUI_TCB (TCB_BASE+72u)
+#define WORKER_TCB (TCB_BASE+8u*72u)
+#define DESKTOP_QUEUE 0x020383d0u
+static int gui_hook(u32 hwnd,u32 message,u32 nonce,u32 cookie);
+
+#ifdef D88_GUI_JOBS_TEST
+extern u8 d88_gui_test_read8(u32);
+extern u32 d88_gui_test_read32(u32);
+extern void d88_gui_test_write32(u32,u32);
+extern u32 d88_gui_test_psr(void);
+extern u32 d88_gui_test_gp(void);
+extern int d88_gui_test_lock(void);
+extern int d88_gui_test_unlock(void);
+extern int d88_gui_test_post(u32,u32,u32,u32);
+extern u32 d88_gui_test_step_address(void (*)(void));
+#define R8(a) d88_gui_test_read8(a)
+#define R32(a) d88_gui_test_read32(a)
+#define W32(a,v) d88_gui_test_write32((a),(v))
+#define PSR() d88_gui_test_psr()
+#define GP() d88_gui_test_gp()
+#define LOCK() d88_gui_test_lock()
+#define UNLOCK() d88_gui_test_unlock()
+#define POST(w,m,n,c) d88_gui_test_post((w),(m),(n),(c))
+#define HOOK_ADDRESS 0x02501100u
+#define STEP_ADDRESS(s) d88_gui_test_step_address(s)
+#else
+#define R8(a) (*(volatile u8*)(a))
+#define R32(a) (*(volatile u32*)(a))
+#define W32(a,v) (*(volatile u32*)(a)=(v))
+#define LOCK() ((int(*)(void))0x021ce8aeu)()
+#define UNLOCK() ((int(*)(void))0x021ce8d8u)()
+#define POST(w,m,n,c) ((int(*)(u32,u32,u32,u32))0x02182c3au)((w),(m),(n),(c))
+#define HOOK_ADDRESS ((u32)gui_hook)
+#define STEP_ADDRESS(s) ((u32)(s))
+static u32 current_psr(void) {u32 n;__asm__ volatile("ld.w %0, %%psr":"=r"(n)::"memory");return n;}
+static u32 current_gp(void) {u32 n;__asm__ volatile("ld.w %0, %%r15":"=r"(n)::"memory");return n;}
+#define PSR() current_psr()
+#define GP() current_gp()
+#endif
+
+/* Whole bounded PostMessage, window/desktop resolver, integer remainder,
+ * loc/unl_cpu, plus the desktop hook dispatch and GUI task entry. */
+static const u8 post_signature[144]={
+    0x03,0x02,0x01,0x84,0x61,0x2e,0x72,0x2e,0x09,0x5c,0xf8,0xdf,0xfb,0xdf,0x7d,0x1d,
+    0x83,0x2e,0x40,0x2e,0x00,0x68,0x3a,0x19,0xf4,0x6f,0x02,0xc0,0x12,0x6b,0x06,0x1a,
+    0x04,0x30,0x40,0xc0,0x00,0xc0,0x04,0x74,0x2f,0x1e,0x1c,0xc0,0x06,0x30,0x14,0xc0,
+    0x07,0x30,0x00,0xc0,0x92,0xc2,0x58,0x1d,0x16,0x60,0x18,0xc0,0x05,0x30,0x54,0x2a,
+    0x25,0x19,0xe4,0x6f,0x1c,0xc0,0x05,0x30,0x54,0x2e,0x34,0x8c,0x54,0x26,0x24,0x8c,
+    0x10,0xc0,0x05,0x30,0x54,0x22,0x41,0x3c,0x04,0xc0,0x42,0x3c,0x08,0xc0,0x43,0x3c,
+    0x05,0x50,0x0c,0xc0,0x45,0x3c,0x1c,0xc0,0x04,0x30,0x14,0x60,0x1c,0xc0,0x04,0x3c,
+    0x14,0xc0,0x05,0x30,0x54,0x2a,0x04,0x0d,0x04,0x6c,0x1c,0xc0,0x04,0x3c,0x04,0x30,
+    0x00,0xc8,0x00,0xc0,0x04,0x74,0x04,0x3c,0x04,0x6c,0x01,0x80,0x43,0x02,0x40,0x06,
+};
+static const u8 lookup_signature[64]={
+    0x06,0x68,0x04,0x1b,0xf6,0x6b,0x10,0x1f,0xf4,0x6f,0x05,0x19,0x65,0x2e,0x54,0x28,
+    0x14,0x68,0x03,0x18,0x09,0x1f,0x04,0x6c,0x02,0xc0,0x54,0x28,0x14,0x69,0x04,0x19,
+    0x54,0x2e,0xb8,0xc0,0x64,0x30,0x40,0x06,0x06,0x68,0x07,0x18,0xf8,0xdf,0xff,0xdf,
+    0xe8,0x1c,0xdc,0xc0,0x44,0x30,0x04,0x1e,0x1c,0xd0,0xd0,0xc3,0xf4,0x22,0x40,0x06,
+};
+static const u8 remainder_signature[38]={
+    0x62,0xa0,0x70,0x8b,0x48,0x6c,0x09,0xa4,0x70,0x93,0x70,0x93,0x70,0x93,0x70,0x93,
+    0x70,0x93,0x70,0x93,0x70,0x93,0x70,0x93,0x18,0x64,0xf7,0x1b,0x90,0xa0,0x70,0x97,
+    0x00,0x9b,0x40,0x07,0x34,0xa4,
+};
+static const u8 lock_signature[42]={
+    0x34,0xd0,0x6c,0xc6,0xf4,0x24,0x04,0x68,0x00,0xc0,0x0d,0x1a,0x34,0xd0,0x6d,0xc6,
+    0xf4,0x24,0x34,0x74,0x34,0xd0,0x6d,0xc6,0xf4,0x34,0x04,0xa4,0xf4,0x72,0x40,0xa0,
+    0x04,0x1f,0x04,0x6c,0xfe,0xdf,0xb4,0x6f,0x40,0x06,
+};
+static const u8 unlock_signature[58]={
+    0x34,0xd0,0x6c,0xc6,0xf4,0x24,0x04,0x68,0x05,0x18,0xfe,0xdf,0xb4,0x6f,0x00,0xc0,
+    0x14,0x1e,0x34,0xd0,0x6d,0xc6,0xf4,0x24,0x03,0xc0,0xc4,0x73,0x34,0xd0,0x6d,0xc6,
+    0xf4,0x34,0x34,0xd0,0x6e,0xc6,0xf0,0xa8,0x04,0x18,0x00,0xc0,0x13,0xc0,0x38,0x1c,
+    0x04,0xa4,0x04,0x75,0x40,0xa0,0x04,0x6c,0x40,0x06,
+};
+static const u8 desktop_hook_signature[28]={
+    0x03,0x02,0x03,0x84,0x71,0x2e,0x82,0x2e,0x1c,0xd0,0x7c,0xc5,0xf4,0x30,0x04,0x68,
+    0x06,0x19,0x90,0x2e,0x04,0x06,0x04,0x68,0x02,0xc0,0x1d,0x18,
+};
+static const u8 gui_entry_signature[24]={
+    0x00,0x02,0x01,0x84,0x00,0xc0,0x66,0xc1,0x33,0x1c,0x1c,0xd0,0xe8,0xc9,0xf4,0x3c,
+    0xf8,0xdf,0xf5,0xdf,0x8e,0x1c,0x04,0x68,
+};
+
+static const u8 desktop_default_signature[214]={
+    0x14,0x2e,0x03,0xc0,0x04,0x67,0xf4,0x69,0x09,0x11,0x16,0x2e,0x27,0x2e,0xf8,0xdf,
+    0xfd,0xdf,0x64,0x1d,0x08,0x2e,0x02,0xc0,0x10,0x1e,0x11,0x69,0x0f,0x1b,0x14,0x2e,
+    0x1c,0xd0,0x74,0xc4,0xf6,0x30,0x06,0x68,0x09,0x19,0x17,0x2e,0x28,0x2e,0x00,0xc0,
+    0x0c,0xc0,0x15,0x1d,0x09,0x2e,0x1c,0x1f,0x14,0x2e,0x04,0x65,0xf4,0x68,0x18,0x11,
+    0x14,0x2e,0x1c,0xd0,0x84,0xc4,0xf6,0x30,0x06,0x68,0x0a,0x19,0x17,0x2e,0x28,0x2e,
+    0xf8,0xdf,0xc4,0xdf,0x30,0x1d,0x09,0x2e,0x04,0x68,0x0a,0x19,0x14,0x2e,0x16,0x2e,
+    0x27,0x2e,0xf8,0xdf,0xfa,0xdf,0x86,0x1d,0x08,0x2e,0x01,0xc0,0xe6,0x1e,0x14,0x64,
+    0xe4,0x68,0x1f,0x11,0x27,0x2e,0x04,0x2e,0x84,0x88,0x84,0x88,0x24,0x5c,0x1c,0xd0,
+    0x84,0xc4,0xf6,0x30,0x06,0x68,0x0d,0x19,0x03,0xad,0x17,0x2e,0x38,0x2e,0xf8,0xdf,
+    0xc4,0xdf,0x11,0x1d,0x49,0x2e,0x04,0x68,0x0c,0x19,0x16,0x2e,0x03,0x1f,0x27,0x2e,
+    0x16,0x2e,0x29,0x50,0xf8,0xdf,0xfb,0xdf,0x40,0x1d,0x38,0x2e,0x01,0xc0,0xc5,0x1e,
+    0x04,0xc0,0x01,0x6a,0x01,0xc0,0xc1,0x19,0x04,0x6c,0x14,0x2e,0x02,0xc0,0x14,0x67,
+    0x02,0xc0,0xe4,0x6b,0x01,0xc0,0xb8,0x11,0x24,0x8c,0xfd,0xd0,0xdc,0xca,0xf5,0x22,
+    0x54,0x22,0x44,0x30,0x84,0x06,
+};
+static const u8 desktop_return_signature[8]={
+    0x04,0x6c,0x03,0x80,0x43,0x02,0x40,0x06,
+};
+static void (*step_function)(void);
+static volatile u32 active,wanted,pending,busy,sequence,pending_nonce;
+static volatile int last_error;
+
+/* Keep the numeric range check separate: folding a relocated function minus
+ * a fixed RAM boundary produces a symbolic addend outside the closed image. */
+static __attribute__((noinline)) int resident_code(u32 p)
+{return !(p&1u) && p>=0x02500000u && p<0x02700000u;}
+static int ram(u32 p,u32 bytes)
+{return !(p&3u) && p>=0x02000000u && p<0x02800000u && bytes<=0x02800000u-p;}
+static int signature(u32 p,const u8 *bytes,unsigned count)
+{unsigned i;for(i=0;i<count;i++) if(R8(p+i)!=bytes[i]) return 0;return 1;}
+static int profile(void)
+{
+    return R32(0x02000204u)==0x021e7b54u && R32(0x021e7b90u)==0x02182c3au &&
+           R32(0x02000200u)==0x021e81e8u && R32(0x021e8244u)==0x021ce8aeu &&
+           R32(0x021e8248u)==0x021ce8d8u && R32(0x022a9820u)==TCB_BASE &&
+           R32(GUI_TCB+24u)==0x0218339au &&
+           signature(0x02182c3au,post_signature,sizeof(post_signature)) &&
+           signature(0x0218231au,lookup_signature,sizeof(lookup_signature)) &&
+           signature(0x021d5120u,remainder_signature,sizeof(remainder_signature)) &&
+           signature(0x021ce8aeu,lock_signature,sizeof(lock_signature)) &&
+           signature(0x021ce8d8u,unlock_signature,sizeof(unlock_signature)) &&
+           signature(0x021813c2u,desktop_hook_signature,sizeof(desktop_hook_signature)) &&
+           signature(0x021813deu,desktop_default_signature,sizeof(desktop_default_signature)) &&
+           signature(0x02181814u,desktop_return_signature,sizeof(desktop_return_signature)) &&
+           signature(0x0218339au,gui_entry_signature,sizeof(gui_entry_signature));
+}
+static int ordinary(void)
+{
+    u32 t=R32(0x02068664u);
+    return GP()==0u && (PSR()&0x710u)==0x10u && R8(0x0206866cu)==0u &&
+           (R8(0x0206866du)&7u)==0u && (t==GUI_TCB || t==WORKER_TCB);
+}
+static int locked(void)
+{
+    u32 t=R32(0x02068664u);
+    return GP()==0u && (PSR()&0x710u)==0u && R8(0x0206866cu)==0u &&
+           (R8(0x0206866du)&7u)==3u && (t==GUI_TCB || t==WORKER_TCB);
+}
+static int enter(void)
+{
+    if(!ordinary()) {last_error=D88_GUI_JOBS_CONTEXT;return D88_GUI_JOBS_CONTEXT;}
+    if(!profile()) {last_error=D88_GUI_JOBS_PROFILE;return D88_GUI_JOBS_PROFILE;}
+    if(LOCK()!=0) {last_error=D88_GUI_JOBS_CONTEXT;return D88_GUI_JOBS_CONTEXT;}
+    /* The GUI may have patched native code or pointers before loc_cpu. */
+    if(!locked() || !profile()) {
+        last_error=D88_GUI_JOBS_PROFILE;
+        (void)UNLOCK();return D88_GUI_JOBS_PROFILE;
+    }
+    return 0;
+}
+static int leave(int result)
+{
+    if(UNLOCK()!=0) result=D88_GUI_JOBS_CONTEXT;
+    if(result!=D88_GUI_JOBS_BUSY) last_error=result;
+    return result;
+}
+static int owned(void)
+{return active && R32(HOOK_SLOT)==HOOK_ADDRESS && step_function!=0;}
+static int queue_valid(void)
+{
+    u32 ring=R32(DESKTOP_QUEUE+0x10u),count=R32(DESKTOP_QUEUE+0x14u);
+    return count>=2u && count<=1024u && R32(DESKTOP_QUEUE+0x18u)<count &&
+           R32(DESKTOP_QUEUE+0x1cu)<count && ram(ring,count*28u);
+}
+
+int d88_gui_jobs_start(void (*step)(void))
+{
+    int r;
+    if(!step || !resident_code(STEP_ADDRESS(step)) || !resident_code(HOOK_ADDRESS))
+        {last_error=D88_GUI_JOBS_PROFILE;return D88_GUI_JOBS_PROFILE;}
+    r=enter();if(r) return r;
+    if(active) return leave(owned() && step_function==step?0:D88_GUI_JOBS_OWNERSHIP);
+    if(R32(HOOK_SLOT)!=0u) return leave(D88_GUI_JOBS_OWNERSHIP);
+    step_function=step;wanted=pending=busy=pending_nonce=0u;
+    /* sequence is deliberately never reset: stale messages from a previous
+     * stop/start in this retained image must not match the new request. */
+    active=1u;W32(HOOK_SLOT,HOOK_ADDRESS);
+    return leave(0);
+}
+int d88_gui_jobs_request(void)
+{
+    int r=enter();if(r) return r;
+    if(!active) return leave(D88_GUI_JOBS_INACTIVE);
+    if(!owned()) return leave(D88_GUI_JOBS_OWNERSHIP);
+    if(!pending) wanted=1u;
+    return leave(0);
+}
+int d88_gui_jobs_poll(void)
+{
+    int r;
+    /* A GUI step cannot refill its own queue and starve the USB worker. */
+    if(R32(0x02068664u)!=WORKER_TCB)
+        {last_error=D88_GUI_JOBS_CONTEXT;return D88_GUI_JOBS_CONTEXT;}
+    r=enter();if(r) return r;
+    if(!active) return leave(D88_GUI_JOBS_INACTIVE);
+    if(!owned()) return leave(D88_GUI_JOBS_OWNERSHIP);
+    if(!wanted || pending || busy) return leave(0);
+    if(!queue_valid()) return leave(D88_GUI_JOBS_QUEUE);
+    if(sequence==0xffffffffu) return leave(D88_GUI_JOBS_EXHAUSTED);
+    pending_nonce=++sequence;pending=1u;wanted=0u;
+    r=POST(0u,PRIVATE_MESSAGE,pending_nonce,IMAGE_COOKIE);
+    if(r!=0) {pending=0u;wanted=1u;if(r!=-2) r=D88_GUI_JOBS_QUEUE;}
+    return leave(r);
+}
+int d88_gui_jobs_idle(void)
+{
+    int r=enter(),is_idle;
+    if(r) return 0;
+    if(active && !owned()) {(void)leave(D88_GUI_JOBS_OWNERSHIP);return 0;}
+    is_idle=!wanted && !pending && !busy;
+    return leave(0)==0 && is_idle;
+}
+int d88_gui_jobs_stop(void)
+{
+    int r=enter();if(r) return r;
+    if(!active) return leave(0);
+    if(!owned()) return leave(D88_GUI_JOBS_OWNERSHIP);
+    if(wanted || pending || busy) return leave(D88_GUI_JOBS_BUSY);
+    W32(HOOK_SLOT,0u);active=0u;step_function=0;pending_nonce=0u;
+    return leave(0);
+}
+int d88_gui_jobs_context(void)
+{
+    return ordinary() && R32(0x02068664u)==GUI_TCB && busy && owned() && profile();
+}
+int d88_gui_jobs_last_error(void) {return last_error;}
+
+/* Called with the short CPU lock held and ownership already established. The
+ * queued object contains only scalars, never a function/buffer pointer. Clearing
+ * pending invalidates it, including when GUI1 drains inline during STOP. A
+ * later post always increments sequence, so an old nonce cannot become live. */
+static int run_one_locked(void)
+{
+    int r;
+    void (*step)(void)=step_function;
+    wanted=pending=0u;busy=1u;
+    r=leave(0);if(r) return r;
+    if(!d88_gui_jobs_context()) {last_error=D88_GUI_JOBS_CONTEXT;return D88_GUI_JOBS_CONTEXT;}
+    step(); /* Native FS can block; no CPU/dispatch lock is held here. */
+    r=enter();if(r) return r;
+    if(!owned()) return leave(D88_GUI_JOBS_OWNERSHIP);
+    busy=0u;return leave(0);
+}
+int d88_gui_jobs_run_inline_one(void)
+{
+    int r;
+    if(R32(0x02068664u)!=GUI_TCB)
+        {last_error=D88_GUI_JOBS_CONTEXT;return D88_GUI_JOBS_CONTEXT;}
+    r=enter();if(r) return r;
+    if(!active) return leave(D88_GUI_JOBS_INACTIVE);
+    if(!owned()) return leave(D88_GUI_JOBS_OWNERSHIP);
+    if(busy) return leave(D88_GUI_JOBS_BUSY);
+    if(!wanted && !pending) return leave(0);
+    /* Native default ignores PRIVATE_MESSAGE: range gates at 13DE..14A4
+     * reject 7F88 and reach 1814 (return 0), without dereferencing its args.
+     * The complete gates/epilogue are profile-checked before detaching. */
+    return run_one_locked();
+}
+static int gui_hook(u32 hwnd,u32 message,u32 nonce,u32 cookie)
+{
+    int r;
+    /* Unknown messages, stale nonces, and synchronous SendMessage calls from
+     * another task are left entirely to the original desktop procedure. */
+    if(hwnd || message!=PRIVATE_MESSAGE || cookie!=IMAGE_COOKIE || !pending ||
+       nonce!=pending_nonce || !active || busy || !ordinary() ||
+       R32(0x02068664u)!=GUI_TCB) return 1;
+    r=enter();if(r) return 1;
+    if(!owned() || !pending || nonce!=pending_nonce || busy ||
+       R32(0x02068664u)!=GUI_TCB) {(void)leave(D88_GUI_JOBS_OWNERSHIP);return 1;}
+    (void)run_one_locked();
+    return 0;
+}

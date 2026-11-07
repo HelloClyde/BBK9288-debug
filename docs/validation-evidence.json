@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "recorded_date": "2026-11-07",
+  "firmware_profile": {
+    "id": "CAPTURED-0215EBC4",
+    "internal_version_marker": "V1.3",
+    "other_models_verified": false
+  },
+  "historical_physical_device": {
+    "tested_date": "2026-11-05",
+    "image_id": "f9dc2295",
+    "device_exe_sha256": "8c62087ffa40fb44b3d602970c81fad47c2999039b2ce90e2cc9c60eb6e9867c",
+    "device_exe_bytes": 70701,
+    "core_source_sha256": "8f5f410827927205d8b257fdbb11982d0ae5df3eb573eb0f7f27cec56a037672",
+    "result": "PASS within listed feature coverage",
+    "strict_identity": "BBK9288DEBUG/1 CAPTURED-0215EBC4 EXPERIMENTAL",
+    "plain_serial_reopen_cycles": 5,
+    "extra_DTR_settle": false,
+    "upload_download_replace_cancel_bytes": 20480,
+    "existing_file_protection": true,
+    "cancel_preserved_previous_file": true,
+    "native_desktop_input": [
+      "single LEFT",
+      "single RIGHT"
+    ],
+    "after_right_framebuffer_pixel_differences": 0,
+    "final_requests": 1294,
+    "final_errors": 0,
+    "USB_cable_remained_connected": true,
+    "acceptance_report_sha256": "04397f820584041af4bc94deadd7ce054e0547b7d0265f4860a9d79788abdedd",
+    "visual_review_sha256": "93a5a5fd91c98294c46069c1a060581057987055a7aed9849e8d6a328e45677c",
+    "not_repeated_in_current_build": [
+      "physical STOP and native USB disk restoration",
+      "long unattended auto-power-off interval",
+      "16MiB transfer boundary"
+    ]
+  },
+  "historical_native_kernel_model": {
+    "result": "PASS: native ROS task/heap/two overlays/two powered starts and logged stops; Misc protection and clock powerup enforced; native FS report readback; simulated USB only; actual captured FS PUT/GET/replace >20KiB CRC/abort/active-upload STOP cleanup and restart readback passed",
+    "simulated_USB_only": true,
+    "same_source_files_verified_against_model_manifest": true,
+    "model_source_sha256": "7aa5469eead81fda4b1eedd8907c111b98f8fae6fc5ec4201e69fa1cbf80e9d3",
+    "observations_sha256": "5a32f4640cb363e7b39e48301cbf924c6d1584bfbbb32c1566d6f70a90f348c0",
+    "claims_physical_USB_validation": false
+  },
+  "public_source_regression": {
+    "command": "python -m unittest discover -s tests -p \"test_*.py\" -v",
+    "native_compiler": "GCC (UCRT64 MinGW)",
+    "target_compiler": "BBK R6-R9/R4 ABI-patched S1C33 LLVM",
+    "target_compiler_environment": "D88_TOOLCHAIN",
+    "run": 266,
+    "passed": 260,
+    "skipped": 6,
+    "failures": 0,
+    "errors": 0,
+    "duration_seconds": 16.461,
+    "log_sha256": "6a6d88f36f467ff62c3a00e38d9099af6e91cbc0651c486c9d3a27df2c4ff61e",
+    "skipped_tests": [
+      "test_actual_table_and_signatures (test_file_service.CapturedAdapterTests.test_actual_table_and_signatures) ... skipped 'private captured firmware unavailable'",
+      "test_native_signatures_and_table_mapping_match_capture (test_gui_jobs.GuiJobsTests.test_native_signatures_and_table_mapping_match_capture) ... skipped 'private captured kernel unavailable'",
+      "test_all_native_code_bytes_match_private_capture (test_memory_heap.MemoryHeapTests.test_all_native_code_bytes_match_private_capture) ... skipped 'private captured kernel unavailable'",
+      "test_profile_matches_captured_firmware (test_memory_map.MemoryMapTests.test_profile_matches_captured_firmware) ... skipped 'private captured firmware unavailable'",
+      "test_fingerprint_matches_captured_firmware (test_power_idle.PowerIdleTests.test_fingerprint_matches_captured_firmware) ... skipped 'private captured firmware unavailable'",
+      "test_optional_private_capture_matches_embedded_signatures (test_usb_delay.UsbDelayTests.test_optional_private_capture_matches_embedded_signatures) ... skipped 'private captured firmware is not distributed'"
+    ],
+    "scope": "Host protocol and production-C models, plus actual S1C33 strict compilation and independent relocation/link checks; no physical device accessed."
+  },
+  "screenshots": [
+    {
+      "file": "screenshots/device-native-menu.png",
+      "kind": "physical device snapshot via debugger",
+      "date": "2026-11-05",
+      "width": 320,
+      "height": 240,
+      "sha256": "ccb6274a780346324380befe46ab607bd1aa0e8960e5ba56c50d13f981da14bb",
+      "edited": false
+    },
+    {
+      "file": "screenshots/windows-client-offline.png",
+      "kind": "actual source Tk client, disconnected UI",
+      "sha256": "9fad4e078c9121e496a67ac955b075c571c5977048243ca7b57beeb9e337fe4f",
+      "edited": false,
+      "claims_connection": false
+    }
+  ],
+  "release_build_boundary": "Historical device EXE hash identifies the exact physically tested container. If the open-source release repackages identical application payload with a new original icon, its whole-file hash differs; byte-identical payload comparison and KF2 container validation do not constitute a fresh physical test.",
+  "excluded_private_material": [
+    "firmware and NAND images",
+    "raw RAM captures",
+    "game files and saves",
+    "USB topology and host absolute paths",
+    "complete private acquisition logs"
+  ],
+  "unsupported": [
+    "directory browsing",
+    "held-key or keyboard-matrix emulation",
+    "arbitrary RAM writes",
+    "arbitrary execution"
+  ],
+  "open_source_container": {
+    "bytes": 70701,
+    "sha256": "eff3fdbc7b563122f4377ffa5e125fd9829eb5e8dd276c042c20fa212c06dd88",
+    "payload_offset": 536,
+    "payload_sha256": "f86c57e384562547e5af756439b3298e08dde9b5ea2957e662e4ad858800c402",
+    "matches_historical_hardware_payload": true,
+    "new_container_physically_retested": false
+  },
+  "final_public_tests": {
+    "run": 270,
+    "passed": 264,
+    "skipped": 6,
+    "failures": 0,
+    "errors": 0,
+    "includes_s1c33_compilation": true,
+    "includes_independent_kf2_tests": true
+  }
+}
