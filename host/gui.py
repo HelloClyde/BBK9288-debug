@@ -19,7 +19,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable
 
-from .client import CAP_APP_REFRESH, CAP_FILES, Client, FileError, remote_path, scan_code, upload_with_refresh
+from .client import CAP_APP_REFRESH, CAP_FILES, CAP_KEY, Client, DeviceError, FileError, remote_path, scan_code, upload_with_refresh
 
 
 ROOT = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
@@ -78,6 +78,7 @@ class DebugWindow:
         self.image_caption = tk.StringVar(value="等待设备截图 · 320 × 240")
         self.action_widgets: list[ttk.Widget] = []
         self.key_widgets: list[ttk.Widget] = []
+        self.key_supported = False
         self.file_widgets: list[ttk.Widget] = []
         self.refresh_widgets: list[ttk.Widget] = []
         self._build()
@@ -212,7 +213,7 @@ class DebugWindow:
         for widget in self.action_widgets:
             widget.configure(state="normal" if available else "disabled")
         for widget in self.key_widgets:
-            allowed = self.connected and not self.closing and (not self.busy or self.busy_operation == "press")
+            allowed = self.connected and self.key_supported and not self.closing and (not self.busy or self.busy_operation == "press")
             widget.configure(state="normal" if allowed else "disabled")
         for widget in self.file_widgets:
             widget.configure(state="normal" if available and self.file_supported else "disabled")
@@ -264,6 +265,8 @@ class DebugWindow:
         self.requests.put_nowait((operation, args))
 
     def _press(self, key: str) -> None:
+        if not self.connected or not self.key_supported:
+            return
         if self.busy:
             if self.connected and not self.closing and self.busy_operation == "press":
                 if not self.key_queue.push(key):
@@ -380,7 +383,11 @@ class DebugWindow:
                     if client is None:
                         raise RuntimeError("设备尚未连接")
                     if operation == "press":
-                        result = client.press(scan_code(args[0]))
+                        try:
+                            result = client.press(scan_code(args[0]))
+                        except DeviceError as error:
+                            self.results.put(("key-error", str(error)))
+                            continue
                     elif operation == "status":
                         result = client.status()
                     elif operation == "refresh-apps":
@@ -469,6 +476,9 @@ class DebugWindow:
                     if operation == "refresh-apps":
                         self.refresh_state.set("可能已完成部分刷新，请核对桌面；不要自动重放或重新上传。")
                         self._log(self.refresh_state.get())
+                elif kind == "key-error":
+                    self.key_queue.clear()
+                    self._log(f"机端拒绝按键：{payload}。连接保持，未重试。")
                 elif kind == "file-error":
                     operation, args, error = payload
                     self.key_queue.clear()
@@ -504,12 +514,18 @@ class DebugWindow:
                                           "当前机端不支持文件传输，请先更新至 CAP_FILES 新版服务。")
                     elif operation in ("disconnect", "stop"):
                         self.connected = False
+                        self.key_supported = False
                         self.file_supported = False
                         self.refresh_supported = False
                         self.refresh_state.set("未连接")
                         self.key_queue.clear()
                     if operation in ("connect", "status"):
                         status = result["status"] if operation == "connect" else result
+                        self.key_supported = bool(status["caps"] & CAP_KEY)
+                        if not self.key_supported:
+                            self.key_queue.clear()
+                            if operation == "connect":
+                                self._log("当前机端未开放远程按键。")
                         self.refresh_supported = bool(status["caps"] & CAP_APP_REFRESH)
                         self.refresh_state.set("可刷新程序列表；请先返回原生桌面。" if self.refresh_supported else
                                                "当前机端不支持刷新列表，请更新 D88DEBUG。")

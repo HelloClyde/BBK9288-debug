@@ -7,6 +7,11 @@ volatile unsigned guest_file_mailbox[8];
 unsigned char guest_file_input[512],guest_file_output[512];
 /* request, entered, returned, result, launcher_status_ptr, TCB, PSR, hook. */
 volatile unsigned guest_file_handoff[8];
+#include "../device/input_jobs.h"
+
+/* Model-only commands go through the production queue on the resident task. */
+volatile unsigned guest_v15_key[6];
+
 static unsigned current_psr(void)
 {unsigned n;__asm__ volatile("ld.w %0, %%psr":"=r"(n)::"memory");return n;}
 static int ordinary(void)
@@ -16,6 +21,15 @@ void guest_file_worker_tick(void)
 {
     unsigned seq,length,output=0;
     int r;
+    if(*(volatile unsigned*)0x02000204u==0x02180058u) {
+        if(guest_v15_key[0]!=guest_v15_key[1]) {
+            guest_v15_key[3]=(unsigned)d88_input_queue(guest_v15_key[2]);
+            guest_v15_key[1]=guest_v15_key[0];
+        }
+        guest_v15_key[4]=(unsigned)d88_input_pending();
+        guest_v15_key[5]=(unsigned)d88_input_last_error();
+        return;
+    }
     if(*(volatile unsigned*)0x02068664u!=0x02068d74u || !ordinary()) return;
     seq=guest_file_mailbox[0];
     if(seq!=guest_file_mailbox[1]) {

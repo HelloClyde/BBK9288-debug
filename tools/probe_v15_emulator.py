@@ -52,6 +52,7 @@ def main():
     parser.add_argument('--relocate-ros-table', action='store_true',
                         help='Force the unknown-fingerprint fallback in the isolated emulator')
     parser.add_argument('--relocate-ros-code', action='store_true')
+    parser.add_argument('--test-keys', action='store_true')
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     nand = args.output / 'v15-probe.raw'
@@ -65,8 +66,11 @@ def main():
         '-cpu', 'c33l05,exit-on-halt=off', '-bios', str(args.boot_rom), '-display', 'none',
         '-serial', 'none', '-monitor', 'none', '-qmp', 'stdio', '-gdb', f'tcp:127.0.0.1:{args.port}',
     ], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=log, text=True, env=env) as process:
-        def qmp(command):
-            process.stdin.write(json.dumps({'execute': command, 'id': command}) + '\n')
+        def qmp(command, arguments=None):
+            request={'execute':command,'id':command}
+            if arguments is not None:
+                request['arguments']=arguments
+            process.stdin.write(json.dumps(request) + '\n')
             process.stdin.flush()
             for line in process.stdout:
                 message = json.loads(line)
@@ -79,6 +83,10 @@ def main():
         try:
             qmp('qmp_capabilities')
             time.sleep(10)
+            if args.test_keys:
+                for key in ('ret','esc','f5','9'):
+                    qmp('human-monitor-command',{'command-line':f'sendkey {key} 120'})
+                    time.sleep(.4)
             remote = Remote(args.port, lambda: qmp('stop'))
             try:
                 remote.stop()
@@ -197,6 +205,29 @@ def main():
                         assert remote.read(tcb+8*72+60,2)==bytes([4,4])
                         assert word(0x020000a8)==base+exports['usb_platform_timer_guard']
                         assert remote.words(base+exports['guest_model_counts'],8)[7]==cycle
+                        if args.test_keys and cycle==1:
+                            mailbox=base+exports['guest_v15_key']
+                            def framebuffer():
+                                return b''.join(remote.read(0x003c0000+offset,640)
+                                                for offset in range(0,19200,640))
+                            images=[framebuffer()]
+                            qmp('screendump',{'filename':str((args.output/'key-before.ppm').resolve())})
+                            for seq,key in enumerate((106,105),1):
+                                remote.write(mailbox+8,struct.pack('<I',key))
+                                remote.write(mailbox,struct.pack('<I',seq))
+                                remote.resume()
+                                time.sleep(1.5)
+                                remote.stop()
+                                reply=remote.words(mailbox,6)
+                                assert reply[1:]==[seq,key,0,0,0],reply
+                                assert remote.words(control,17)[9]==2
+                                images.append(framebuffer())
+                                qmp('screendump',{'filename':str((args.output/f'key-{seq}.ppm').resolve())})
+                            print('V1.5 changed framebuffer bytes',
+                                  [sum(a!=b for a,b in zip(x,y)) for x,y in zip(images,images[1:])],flush=True)
+                            assert images[0]!=images[1] and images[1]!=images[2], 'GUI ignored direction keys'
+                            snapshot['native_gui_keys']=['RIGHT','LEFT']
+                            print('V1.5 native GUI LEFT/RIGHT changed the screen while USB stayed running',flush=True)
                         # The worker wakes frequently at priority five. Re-enter
                         # the launcher only from the original foreground task.
                         invoke_launcher()

@@ -62,7 +62,7 @@ def main():
                    'device_descriptor','usb_test_read','power_idle_diagnostic',
                    'd88_files_gui_progress','files_diagnostic','gui_hook',
                    'guest_file_mailbox','guest_file_input','guest_file_output','guest_file_handoff','tx',
-                   'guest_file_layout']:
+                   'guest_file_layout','guest_v15_key']:
         cmd.extend(['--export',symbol])
     run(cmd)
     clang=toolchain/'bin/clang.exe'

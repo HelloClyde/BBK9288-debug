@@ -5,7 +5,7 @@ import unittest
 from unittest.mock import patch
 try:
     from host import gui
-    from host.client import CAP_APP_REFRESH, CAP_FILES, FileError
+    from host.client import CAP_APP_REFRESH, CAP_FILES, DeviceError, FileError
     from host.gui import DebugWindow, KeyQueue
 except ImportError:
     DebugWindow = KeyQueue = None
@@ -42,12 +42,51 @@ class GuiQueueTests(unittest.TestCase):
         w.progress = {}
         w.state, w.transfer, w.refresh_state = Value(), Value(), Value()
         w.refresh_supported = False
+        w.key_supported = True
         w.refresh_widgets = []
         w.root = type("Root", (), {"after": lambda *_: None})()
         w.log_messages = []
         w._log = w.log_messages.append
         w._set_controls = lambda: None
         return w
+
+    def test_unsupported_key_is_not_sent(self):
+        w = self.window()
+        w.key_supported = False
+        w._press("UP")
+        self.assertTrue(w.requests.empty())
+
+    def test_valid_key_rejection_keeps_transport(self):
+        w = self.window()
+        class Peer:
+            def __init__(self, **_):
+                self.closed = False
+
+            def ping(self):
+                return "debug"
+
+            def status(self):
+                assert not self.closed
+                return {"caps": 0}
+
+            def press(self, _):
+                raise DeviceError(4, 1, b"")
+
+            def close(self):
+                self.closed = True
+
+        with patch.object(gui,"Client",Peer):
+            worker = threading.Thread(target=w._worker,daemon=True)
+            worker.start()
+            w.requests.put(("connect", (None, 115200)))
+            self.assertEqual(w.results.get(timeout=2)[0],"ok")
+            w.requests.put(("press", ("UP",)))
+            self.assertEqual(w.results.get(timeout=2)[0],"key-error")
+            w.requests.put(("status", ()))
+            self.assertEqual(w.results.get(timeout=2),("ok",("status",{"caps":0})))
+            w.requests.put(("quit", ()))
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
 
     def test_fifo_is_bounded_and_only_key_work_accepts_more_keys(self):
         w = self.window()

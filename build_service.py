@@ -71,7 +71,7 @@ def main():
             "source_sha256":digest.hexdigest(),"mode":"heap-resident-experimental",
             "target":"original-9288-captured-v1.3-and-local-v1.5","hardware_usb_verified":False,
             "firmware_profiles":{"V1.3":"hardware-capture-0215ebc4", "V1.5":"local-release-020f5df4"},
-            "v15_services":["usb-cdc","screen","ram-read","scratch","stop"],
+            "v15_services":["usb-cdc","screen","ram-read","scratch","gui-keys","stop"],
             "identity":"BBK9288DEBUG/1 CAPTURED-0215EBC4 EXPERIMENTAL",
             "task_slot":8,"heap_lifetime":"retained until reboot; same-build restart supported",
             "task_priority":task_priority,"native_gui_input":"validated PostMessage jobs; direct matrix-polling games excluded",

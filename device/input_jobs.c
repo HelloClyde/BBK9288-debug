@@ -19,10 +19,23 @@ extern int d88_input_test_post(u32 window,u32 message,u32 scan,u32 extra);
 #define R8(a) (*(volatile u8*)(a))
 #define R16(a) (*(volatile unsigned short*)(a))
 #define R32(a) (*(volatile u32*)(a))
-#define LOCK() ((int(*)(void))0x021ce8aeu)()
-#define UNLOCK() ((int(*)(void))0x021ce8d8u)()
-#define POST(w,m,s) ((int(*)(u32,u32,u32,u32))0x02182c3au)((w),(m),(s),0)
+#define LOCK() ((int(*)(void))(original_v15()?0x02166d06u:0x021ce8aeu))()
+#define UNLOCK() ((int(*)(void))(original_v15()?0x02166d30u:0x021ce8d8u))()
+#define POST(w,m,s) ((int(*)(u32,u32,u32,u32))(original_v15()?0x0211a1f2u:0x02182c3au))((w),(m),(s),0)
 #endif
+
+static int original_v15(void) { return R32(0x02000204u)==0x02180058u; }
+
+static int code_crc(u32 address,unsigned size,u32 expected)
+{
+    u32 crc=0xffffffffu;
+    unsigned index,bit;
+    for(index=0;index<size;++index) {
+        crc^=R8(address+index);
+        for(bit=0;bit<8u;++bit) crc=(crc>>1)^((0u-(crc&1u))&0xedb88320u);
+    }
+    return ~crc==expected;
+}
 
 static const u8 active_signature[10]={0x1c,0xd0,0x74,0xc4,0xf4,0x30,0x00,0xc0,0xcd,0x1e};
 static const u8 focus_signature[26]={0x00,0xc0,0x00,0xc0,0x41,0x1c,0x04,0x68,0x07,0x18,0xc4,0xc0,0x45,0x30,0x05,0x68,0x04,0x18,0x03,0x1f,0x54,0x2e,0x04,0x6c,0x40,0x06};
@@ -67,6 +80,17 @@ static int signature(u32 address,const u8 *bytes,unsigned size)
 }
 int d88_input_available(void)
 {
+    if(original_v15()) {
+        /* PostMessage and its queue lookup have the same structure and
+         * record offsets as the captured V1.3 implementation. Their
+         * embedded addresses and the ROS lock pair differ. */
+        return R32(0x02000200u)==0x021806ecu && R32(0x02180058u+60u)==0x0211a1f2u &&
+            R32(0x02180058u+78u*4u)==0x02113c90u &&
+            code_crc(0x0211a1f2u,144u,0x19a29ac4u) && code_crc(0x021198d2u,64u,0x5d8a3bfeu) &&
+            code_crc(0x02118576u,10u,0x1763891eu) && code_crc(0x02113c90u,26u,0x873b4088u) &&
+            code_crc(0x0216d578u,38u,0x59b86e71u) && code_crc(0x02166d06u,42u,0x733bd9d6u) &&
+            code_crc(0x02166d30u,58u,0xfb7a4190u);
+    }
     return R32(0x02000204u)==0x021e7b54u && R32(0x021e7b54u+60u)==0x02182c3au &&
            R32(0x021faa7cu)==0x02180fbeu &&
            signature(0x02180fbeu,active_signature,sizeof(active_signature)) &&
@@ -84,7 +108,7 @@ static u32 message_queue(u32 window,u32 *main)
 {
     u32 owner;
     if(main) *main=0;
-    if(!window) return 0x020383d0u;
+    if(!window) return original_v15()?0x0227923cu:0x020383d0u;
     if(!ram(window,0xbcu) || R16(window)!=1u) return 0;
     owner=R16(window+2u)==0x11u?window:R32(window+0xb8u);
     if(!main_window(owner)) return 0;
@@ -101,7 +125,7 @@ static int queue_valid(u32 queue)
 }
 static int choose_target(u32 *window)
 {
-    u32 active=R32(0x02038474u),focus,owner;
+    u32 active=R32(original_v15()?0x022792e0u:0x02038474u),focus,owner;
     if(!active) {*window=0;return 1;}
     if(!main_window(active)) return 0;
     *window=active;focus=R32(active+0xc4u);
