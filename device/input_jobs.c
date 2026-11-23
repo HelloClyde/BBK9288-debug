@@ -1,6 +1,16 @@
 #include "input_jobs.h"
 typedef unsigned int u32;
 typedef unsigned char u8;
+#include "profiles.h"
+
+static u32 ros_table,ros_lock,ros_unlock;
+
+void d88_input_bind_ros(unsigned table,unsigned lock,unsigned unlock)
+{
+    ros_table=table;
+    ros_lock=lock;
+    ros_unlock=unlock;
+}
 
 #ifdef D88_INPUT_TEST
 extern u8 d88_input_test_read8(u32 address);
@@ -19,12 +29,25 @@ extern int d88_input_test_post(u32 window,u32 message,u32 scan,u32 extra);
 #define R8(a) (*(volatile u8*)(a))
 #define R16(a) (*(volatile unsigned short*)(a))
 #define R32(a) (*(volatile u32*)(a))
-#define LOCK() ((int(*)(void))(original_v15()?0x02166d06u:0x021ce8aeu))()
-#define UNLOCK() ((int(*)(void))(original_v15()?0x02166d30u:0x021ce8d8u))()
+#define LOCK() ((int(*)(void))ros_lock)()
+#define UNLOCK() ((int(*)(void))ros_unlock)()
 #define POST(w,m,s) ((int(*)(u32,u32,u32,u32))(original_v15()?0x0211a1f2u:0x02182c3au))((w),(m),(s),0)
 #endif
 
 static int original_v15(void) { return R32(0x02000204u)==0x02180058u; }
+static u8 input_byte(u32 address) { return R8(address); }
+
+static int input_ros_valid(int v15)
+{
+    const u32 *original=d88_usb_ros_original[v15?0:1];
+#ifdef D88_INPUT_TEST
+    if(!ros_table) return 1; /* Host tests supply their own lock callbacks. */
+#endif
+    if(!ros_table || R32(0x02000200u)!=ros_table ||
+       R32(ros_table+23u*4u)!=ros_lock || R32(ros_table+24u*4u)!=ros_unlock) return 0;
+    return (ros_lock==original[2] || d88_match_moved_ros(input_byte,original[2],ros_lock,42u)) &&
+           (ros_unlock==original[3] || d88_match_moved_ros(input_byte,original[3],ros_unlock,58u));
+}
 
 static int code_crc(u32 address,unsigned size,u32 expected)
 {
@@ -84,14 +107,14 @@ int d88_input_available(void)
         /* PostMessage and its queue lookup have the same structure and
          * record offsets as the captured V1.3 implementation. Their
          * embedded addresses and the ROS lock pair differ. */
-        return R32(0x02000200u)==0x021806ecu && R32(0x02180058u+60u)==0x0211a1f2u &&
+        return input_ros_valid(1) && R32(0x02180058u+60u)==0x0211a1f2u &&
             R32(0x02180058u+78u*4u)==0x02113c90u &&
             code_crc(0x0211a1f2u,144u,0x19a29ac4u) && code_crc(0x021198d2u,64u,0x5d8a3bfeu) &&
             code_crc(0x02118576u,10u,0x1763891eu) && code_crc(0x02113c90u,26u,0x873b4088u) &&
             code_crc(0x0216d578u,38u,0x59b86e71u) && code_crc(0x02166d06u,42u,0x733bd9d6u) &&
             code_crc(0x02166d30u,58u,0xfb7a4190u);
     }
-    return R32(0x02000204u)==0x021e7b54u && R32(0x021e7b54u+60u)==0x02182c3au &&
+    return R32(0x02000204u)==0x021e7b54u && input_ros_valid(0) && R32(0x021e7b54u+60u)==0x02182c3au &&
            R32(0x021faa7cu)==0x02180fbeu &&
            signature(0x02180fbeu,active_signature,sizeof(active_signature)) &&
            signature(0x0217c6d8u,focus_signature,sizeof(focus_signature)) &&

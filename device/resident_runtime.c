@@ -108,7 +108,7 @@ static void configure_core(void)
     platform.snapshot=snapshot; platform.snapshot_capacity=sizeof(snapshot);
     platform.uptime_ms=uptime; platform.read=read_ram; platform.capture=capture;
     d88_input_reset();
-    if(!scanned_profile && d88_input_available()) {platform.caps|=DBG_CAP_KEY;platform.key=queue_key;}
+    if(d88_input_available()) {platform.caps|=DBG_CAP_KEY;platform.key=queue_key;}
     if(files_diagnostic.enabled) {
         platform.caps|=DBG_CAP_FILES;
         if(d88_app_refresh_available()) platform.caps|=DBG_CAP_APP_REFRESH;
@@ -255,6 +255,7 @@ int resident_start(void)
     running_profile=d88_select_firmware(resident_word,resident_byte,&scanned_profile);
     if(!running_profile || (unsigned)tpDL_ROS33Table!=resident_word(0x02000200u) ||
        !d88_resolve_usb_ros(running_profile,resident_word,resident_byte,scanned_profile,&ros)) return -107;
+    d88_input_bind_ros((unsigned)tpDL_ROS33Table,ros.lock,ros.unlock);
     v15=running_profile->id==1u;
     current_address=v15?0x022a9610u:0x02068664u;
     tcb_base=resident_word(running_profile->tcb_pointer);

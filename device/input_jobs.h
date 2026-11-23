@@ -2,6 +2,7 @@
 #define D88_INPUT_JOBS_H
 /* Native GUI messages; direct hardware key polling is outside this capability. */
 int d88_input_available(void);
+void d88_input_bind_ros(unsigned table,unsigned lock,unsigned unlock);
 int d88_input_queue(unsigned scan);
 int d88_input_poll(void);
 int d88_input_pending(void);
