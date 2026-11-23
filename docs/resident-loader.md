@@ -124,9 +124,15 @@ wrapper's pointer restoration. See
 
 The native model also showed that priority 8 is shared with the idle task.
 The idle task stays at the front of that queue, so a newly created worker at
-the same priority can remain READY indefinitely. The worker must have a
-priority above idle while allowing the GUI and its input handling to run.
-The production worker uses priority 7 and delays between bounded poll batches.
+the same priority can remain READY indefinitely. A foreground native
+program can keep GUI1 (priority 6) runnable continuously, starving the
+original priority-7 CDC worker even while USB stays enumerated.
+
+The worker runs at priority 5 and still delays after each bounded poll
+batch. On captured V1.3 hardware, a foreground busy window gave the
+priority-7 worker zero polls. The same workload at priority 5 gave 152
+polls in 512 CTM ticks. Test code restored priority 7 afterwards. File
+jobs still run in GUI1 through the existing message bridge.
 
 `vcre_tsk` itself writes the selected slot without occupancy checks, so the
 caller must validate the live slot before creating a task.

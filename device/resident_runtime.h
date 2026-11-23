@@ -5,7 +5,10 @@ typedef unsigned int d88_word;
 #define D88_CONTROL_MAGIC 0x33443838u
 #define D88_CONTROL_VERSION 1u
 #define D88_TASK_ID 8u
-#define D88_TASK_PRIORITY 7u
+/* GUI1 runs at priority 6 on the supported firmware. The CDC worker
+ * must be able to service requests while a foreground EXE is computing.
+ * Its existing bounded poll batch and dly_tsk(1) keep GUI1 runnable. */
+#define D88_TASK_PRIORITY 5u
 #define D88_STACK_BYTES 8192u
 
 enum d88_service_state {

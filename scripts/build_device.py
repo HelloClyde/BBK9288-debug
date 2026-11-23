@@ -6,12 +6,11 @@ import hashlib
 import importlib
 import json
 from pathlib import Path
-import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from scripts.kf2_container import inspect, pack
+from scripts.kf2_container import inspect
 
 HISTORICAL_PAYLOAD_SHA256 = "f86c57e384562547e5af756439b3298e08dde9b5ea2957e662e4ad858800c402"
 HISTORICAL_IMAGE_ID = "f9dc2295"
@@ -34,19 +33,6 @@ def main() -> None:
         parser.error("Missing SDK headers; run scripts/fetch_build_dependencies.py or pass --sdk")
     build_service = importlib.import_module("build_service")
 
-    def run(arguments):
-        # Only the final container operation is replaced. Compile/link/relocation
-        # auditing still execute the original builder and its original flags.
-        if Path(arguments[0]).name == "gen_ap_kf2.exe":
-            values = {str(arguments[i]): str(arguments[i + 1]) for i in range(1, len(arguments), 2)}
-            output = Path(values["-o"])
-            data = pack(Path(values["-i"]).read_bytes(), values["-name"])
-            inspect(data, values["-name"])
-            output.write_bytes(data)
-        else:
-            subprocess.run([str(value) for value in arguments], check=True)
-
-    build_service.run = run
     saved_argv = sys.argv
     try:
         sys.argv = [str(ROOT / "build_service.py"), "--sdk", str(sdk), "--toolchain", str(toolchain)]

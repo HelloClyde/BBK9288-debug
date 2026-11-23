@@ -6,7 +6,7 @@
 
 ## 快速开始
 
-在本仓库右侧 **Releases** 下载 `v0.2.0` 预发布的 Windows ZIP，并按随包 `SHA256SUMS.txt` 核对文件。机端 `9288Debug.exe` 与电脑端 `9288Debug-PC.exe` 是两种程序。
+在本仓库右侧 **Releases** 下载最新预发布的 Windows ZIP，并按随包 `SHA256SUMS.txt` 核对文件。机端 `9288Debug.exe` 与电脑端 `9288Debug-PC.exe` 是两种程序。
 
 1. 在 9288 上进入原生 USB 磁盘模式，把 ZIP 内 `device/系统/程序/9288Debug.exe` 复制到设备卷的 **`系统/程序/9288Debug.exe`**。
 2. 等待复制结束，在 Windows 安全弹出磁盘，然后在 **9288 上退出 USB 磁盘界面**。USB 线可以一直插着供电。
@@ -103,7 +103,7 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 v0.1.0 的历史基线为 `image_id=f9dc2295`，其原版 EXE 在真机通过 5 次普通重连、20 KiB 文件上传/下载/替换/取消、同名文件保护、GUI 左右键及截图恢复，最终 1294 次请求、0 错误。
 
-v0.2.0 新增固件扫描作业，设备运行时已经变化，不能沿用“与旧真机载荷相同”的验证声明。本版按[运行时记录](docs/runtime-validation.json)绑定映像身份和 SHA，主机回归、S1C33 编译/重定位、原生 GUI1 扫描模型与真机测试分别记录。当前版本验证范围见[刷新说明](docs/app-refresh.md)和[验证记录](docs/validation.md)；STOP/原生磁盘恢复及长期关机恢复的旧边界仍保留。
+v0.2.1 调整了 USB 任务优先级，并统一机端图标打包。版本、映像身份及 SHA 见[运行时记录](docs/runtime-validation.json)。主机回归、S1C33 编译与重定位、真机前台运行分别记录在[验证记录](docs/validation.md)。
 
 ## 感谢
 

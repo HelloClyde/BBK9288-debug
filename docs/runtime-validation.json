@@ -1,14 +1,14 @@
 {
   "schema": 1,
-  "version": "0.2.0",
-  "image_id": "d276dce1",
-  "payload_sha256": "a641ffab2ba16a46d6a1b7ad929785efae15b124afd185739cb96dd7af568df8",
-  "device_sha256": "f6620fc415d025748a50c3df7cd9c94c0ca95c1498d4e4b5726d25e281569a27",
-  "runtime_source_sha256": "5a1d75a3dbb11163c97aa888e13263a7a32e41db282004adb5cd4761e6b1ff46",
+  "version": "0.2.1",
+  "image_id": "1aa3cfc8",
+  "payload_sha256": "e2155c11c84aa6ffb6d7eeba505357306560f0fadfe522c96e60f55bcf7562ed",
+  "runtime_source_sha256": "3781f7fcc1bfb9627ec134630de8777d7c1db533379a4676cc6b15cfc71d8aff",
+  "device_sha256": "7cd65c76f7686c69ff332f1f72fc51779dfab101c70678c24af033b7e2871248",
   "host_models_verified": true,
-  "native_gui_refresh_model_verified": true,
-  "physical_app_refresh_verified": true,
-  "container_hardware_retested": true,
-  "validation_scope": "Version-specific host/target/native-GUI1 tests passed. Exact runtime physically verified for manual refresh, upload-then-refresh, restored cached category, active-GET BUSY guard, repeat scan and three ordinary reconnections; STOP/long idle recovery not physically retested.",
-  "evidence": "docs/app-refresh-validation.json"
+  "native_gui_refresh_model_verified": false,
+  "physical_app_refresh_verified": false,
+  "container_hardware_retested": false,
+  "validation_scope": "Pinned S1C33 rebuild, resident relocation and host tests. Foreground USB scheduling and native startup were verified on the separate physical test builds recorded in docs/validation.md. The v0.2.1 release payload was built and reviewed separately.",
+  "evidence": "docs/validation.md"
 }

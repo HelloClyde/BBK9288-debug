@@ -9,6 +9,7 @@ import sys
 import zlib
 
 from build import headers, run
+from scripts.kf2_container import inspect, pack
 
 ROOT=Path(__file__).resolve().parent
 
@@ -57,16 +58,18 @@ def main():
     binary=output/"9288Debug.bin"
     run([toolchain/"bin/llvm-objcopy.exe","-O","binary","--gap-fill","255",elf,binary])
     app=dist/"9288Debug.exe"
-    run([sdk/"apmk/gen_ap_kf2.exe","-module","9","-icon1",sdk/"apmk/ico1.bin",
-         "-icon2",sdk/"apmk/ico2.bin","-name","D88DEBUG","-i",binary,"-o",app])
+    packaged=pack(binary.read_bytes(),"D88DEBUG")
+    container=inspect(packaged)
+    app.write_bytes(packaged)
     sha=hashlib.sha256(app.read_bytes()).hexdigest()
     app.with_suffix(".exe.sha256").write_text(f"{sha}  {app.name}\n",encoding="ascii")
     result={"file":app.name,"size":app.stat().st_size,"sha256":sha,"image_id":f"{image_id:08x}",
+            "container":container,
             "source_sha256":digest.hexdigest(),"mode":"heap-resident-experimental",
             "target":"hardware-capture-0215ebc4","hardware_usb_verified":False,
             "identity":"BBK9288DEBUG/1 CAPTURED-0215EBC4 EXPERIMENTAL",
             "task_slot":8,"heap_lifetime":"retained until reboot; same-build restart supported",
-            "task_priority":7,"native_gui_input":"validated PostMessage jobs; direct matrix-polling games excluded",
+            "task_priority":5,"native_gui_input":"validated PostMessage jobs; direct matrix-polling games excluded",
             "usb_power_supported":True,
             "file_transfer":"GUI1 native filesystem jobs; token/offset/CRC, staged upload and verified commit; cancellation before USB release",
             "auto_power_off":"native idle timer refreshed while debugger runs; original setting untouched; normal countdown resumes on stop",
