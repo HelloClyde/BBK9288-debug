@@ -86,7 +86,7 @@ def main():
     from elftools.elf.elffile import ELFFile
     with elf.open('rb') as handle:
         table=ELFFile(handle).get_section_by_name('.symtab')
-        wanted={'guest_launcher_hook','guest_hook_status','guest_hook_result','DL_AppMain',
+        wanted={'guest_launcher_hook','guest_launch_v15','guest_hook_status','guest_hook_result','DL_AppMain',
                 'usb_log_last_report','usb_log_last_result','usb_log_last_path','usb_last_dialog_state','saved_report'}
         symbols={s.name:int(s['st_value']) for s in table.iter_symbols() if s.name in wanted}
     (output/'launcher-symbols.json').write_text(json.dumps(symbols,indent=2)+'\n')

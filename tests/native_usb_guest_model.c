@@ -20,6 +20,11 @@ volatile unsigned guest_misc_counts[4];
  * early releases, completed powerup intervals. Values use native ROS units. */
 volatile unsigned guest_misc_clock_signals[6]={0,0,0,0xffffffffu,0,0};
 static unsigned misc_powerup_pending;
+static int original_v15(void) { return *(volatile u32*)0x02000204u==0x02180058u; }
+static u32 native_tick(void)
+{
+    return *(volatile u32*)(original_v15()?0x022a9620u:0x02068674u);
+}
 static unsigned current_psr(void)
 {
     unsigned value;
@@ -87,11 +92,11 @@ void usb_test_write(unsigned address,u8 value)
         if(!misc_write_key) {guest_misc_counts[2]++;return;}
         misc_write_key=0;
         guest_misc_counts[1]++;
-        if((*(volatile u8*)0x0206866du&3u)!=3u || (current_psr()&0x10u))
+        if((*(volatile u8*)(original_v15()?0x022a9619u:0x0206866du)&3u)!=3u || (current_psr()&0x10u))
             guest_misc_counts[3]++;
         before=*(volatile u8*)address;
         if(address==0x00300f20u) {
-            unsigned tick=*(volatile u32*)0x02068674u;
+            unsigned tick=native_tick();
             if(!(before&0x10u) && (value&0x10u)) {
                 guest_misc_clock_signals[0]=tick;guest_misc_clock_signals[2]++;
                 misc_powerup_pending=1;
@@ -112,7 +117,7 @@ void usb_test_write(unsigned address,u8 value)
     guest_model_counts[1]++;
     off=address-0x01000000u;
     if(off==0x23u) {
-        unsigned tick=*(volatile u32*)0x02068674u;
+        unsigned tick=native_tick();
         if(!(value&0x80u)) {
             guest_model_signals[0]=tick;
             if(regs[off]&0x80u) guest_model_signals[2]=tick;
@@ -151,13 +156,17 @@ void usb_platform_test_write32(unsigned address,u32 value)
 int usb_platform_test_syscall(unsigned operation,int argument)
 {
     u32 address;
-    if(operation==1u) address=0x021ce8aeu;
+    if(original_v15() && operation>=1u && operation<=4u) {
+        static const unsigned slots[]={23u,24u,9u,10u};
+        address=*(volatile u32*)(*(volatile u32*)0x02000200u+4u*slots[operation-1u]);
+    }
+    else if(operation==1u) address=0x021ce8aeu;
     else if(operation==2u) address=0x021ce8d8u;
     else if(operation==3u) address=0x021cfe60u;
     else if(operation==4u) address=0x021cfed2u;
     else return -1;
     guest_model_counts[operation+1u]++;
-    if(operation==4u) guest_model_signals[3]=*(volatile u32*)0x02068674u;
+    if(operation==4u) guest_model_signals[3]=native_tick();
     if(operation>=3u) return ((int(*)(int))address)(argument);
     return ((int(*)(void))address)();
 }

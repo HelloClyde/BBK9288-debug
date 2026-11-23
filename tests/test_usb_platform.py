@@ -81,6 +81,22 @@ class USBPlatformTests(unittest.TestCase):
                 self.assertEqual(l.usb_platform_claim(),-31)
                 self.assertEqual(l.model_writes(),0);self.assertEqual(l.model_calls(3),0)
                 self.assertEqual(self.task_state(),7)
+    def test_original_v15_mapping_with_restart_and_restore(self):
+        l=self.lib
+        l.model_use_original_v15()
+        task=0x022a9ae0+3*72
+        for _ in range(2):
+            self.assertEqual(l.usb_platform_claim(),0)
+            self.assertEqual(l.model_read8(task+0x3f),15)
+            self.assertEqual(l.model_read32(0x020000a8),0x02500100)
+            l.model_modify_cdc()
+            self.assertEqual(l.usb_platform_release(),0)
+            self.assertEqual(l.model_read8(task+0x3f),7)
+            self.assertEqual(l.model_read32(0x020000a8),0x02133df4)
+            self.assertEqual(l.model_read8(0x00300f20),0x27)
+            self.assertTrue(l.model_sram_restored())
+        self.assertEqual(l.model_calls(3),2)
+        self.assertEqual(l.model_calls(4),2)
     def test_wrong_profile_or_task_is_rejected_before_mutation(self):
         l=self.lib
         for address,value in [(0x2000200,0),(0x219c1f2,0),(0x22a9864,0),(TCB+0x18,0),(TCB+0x3f,15)]:

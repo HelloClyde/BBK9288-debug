@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -62,14 +63,18 @@ def main():
     container=inspect(packaged)
     app.write_bytes(packaged)
     sha=hashlib.sha256(app.read_bytes()).hexdigest()
+    runtime_header=(ROOT/"device/resident_runtime.h").read_text(encoding="utf-8")
+    task_priority=int(re.search(r"^#define D88_TASK_PRIORITY (\d+)u$",runtime_header,re.M)[1])
     app.with_suffix(".exe.sha256").write_text(f"{sha}  {app.name}\n",encoding="ascii")
     result={"file":app.name,"size":app.stat().st_size,"sha256":sha,"image_id":f"{image_id:08x}",
             "container":container,
             "source_sha256":digest.hexdigest(),"mode":"heap-resident-experimental",
-            "target":"hardware-capture-0215ebc4","hardware_usb_verified":False,
+            "target":"original-9288-captured-v1.3-and-local-v1.5","hardware_usb_verified":False,
+            "firmware_profiles":{"V1.3":"hardware-capture-0215ebc4", "V1.5":"local-release-020f5df4"},
+            "v15_services":["usb-cdc","screen","ram-read","scratch","stop"],
             "identity":"BBK9288DEBUG/1 CAPTURED-0215EBC4 EXPERIMENTAL",
             "task_slot":8,"heap_lifetime":"retained until reboot; same-build restart supported",
-            "task_priority":5,"native_gui_input":"validated PostMessage jobs; direct matrix-polling games excluded",
+            "task_priority":task_priority,"native_gui_input":"validated PostMessage jobs; direct matrix-polling games excluded",
             "usb_power_supported":True,
             "file_transfer":"GUI1 native filesystem jobs; token/offset/CRC, staged upload and verified commit; cancellation before USB release",
             "auto_power_off":"native idle timer refreshed while debugger runs; original setting untouched; normal countdown resumes on stop",

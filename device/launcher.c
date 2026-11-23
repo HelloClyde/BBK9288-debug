@@ -33,32 +33,33 @@ static unsigned hex(unsigned at,unsigned v)
 }
 static void show(const char *body,const char *title)
 {
+#ifdef USB_PLATFORM_TEST_NATIVE_GUEST
+    if(*(volatile u32*)0x02000204u==0x02180058u) return;
+#endif
     tpDL_GUITable->MessageBox(HWND_DESKTOP,(const T_BYTE*)body,(const T_BYTE*)title,MB_OK);
 }
-static int captured_profile(void)
+static u32 firmware_word(u32 address)
 {
-    unsigned i,b;
-    const probe_profile *profile=profiles+1;
-    for(i=0;i<6u;i++) if(*(volatile unsigned*)(0x02000200u+i*4u)!=profile->tables[i]) return 0;
-    for(i=0;i<3u;i++) for(b=0;b<40u;b++)
-        if(*(volatile unsigned char*)(profile->signature_addresses[i]+b)!=profile->signatures[i][b]) return 0;
-    return *(volatile unsigned*)0x02069000u==0x02500000u &&
-           *(volatile unsigned*)0x02069004u==0x02700000u;
+    return *(volatile u32*)address;
+}
+static u8 firmware_byte(u32 address)
+{
+    return *(volatile u8*)address;
 }
 static int heap_range(unsigned address,unsigned size)
 {
     return address>=0x02500000u && address<0x02700000u && size<=0x02700000u-address;
 }
-static int disk_idle(unsigned tcb)
+static int disk_idle(const probe_profile *profile,unsigned tcb)
 {
     /* VBUS may remain high for power. Require the native disk exit path's
      * cold controller and idle flags instead of requiring a cable removal.
      * The worker repeats the full identity/ownership checks under CPU lock. */
-    return *(volatile unsigned*)0x024ef004u==0u &&
-           *(volatile unsigned*)0x02049798u==0u &&
-           *(volatile unsigned*)0x020497e0u==0u &&
-           *(volatile unsigned*)0x0204979cu==0x00040000u &&
-           *(volatile unsigned char*)0x02000351u==0u &&
+    return firmware_word(profile->usb_desktop)==0u &&
+           firmware_word(profile->usb_phase)==0u &&
+           firmware_word(profile->usb_phase2)==0u &&
+           firmware_word(profile->usb_io_base)==0x00040000u &&
+           firmware_byte(profile->usb_flags+1u)==0u &&
            *(volatile unsigned char*)(tcb+3u*72u+0x3fu)==7u &&
            (*(volatile unsigned char*)0x00300f20u&0x37u)==0x27u;
 }
@@ -225,7 +226,7 @@ static int capture_usb_log(volatile d88_control *control)
     }
     return usb_log_last_result;
 }
-static void report(volatile d88_control *control,int result)
+static void report(int full_services,volatile d88_control *control,int result)
 {
     unsigned n,i;
     volatile usb_cdc_diagnostic *diagnostic=(volatile usb_cdc_diagnostic*)
@@ -246,7 +247,9 @@ static void report(volatile d88_control *control,int result)
         n=text(n," CTRL=");n=hex(n,diagnostic->control);
         n=text(n,"\nXCVR=");n=hex(n,diagnostic->xcvr);
         n=text(n," SETUP=");n=hex(n,diagnostic->setup_count);
-        text(n,"\nFiles and GUI keys ready. Auto power-off paused.\nReturn to menu; use PC client. USB power can stay connected. Open again to stop.");
+        if(full_services) n=text(n,"\nFiles and GUI keys ready. Auto power-off paused.");
+        else n=text(n,"\nScreen and RAM debugging.");
+        text(n,"\nReturn to menu; use PC client. USB power can stay connected. Open again to stop.");
         show(message,"D88DEBUG READY");
     } else if(control->state==D88_WAIT_USB || control->state==D88_STOPPING ||
               (control->state==D88_RUNNING && control->stop_requested)) {
@@ -279,14 +282,19 @@ T_WORD App_Main(void)
     resident_loaded loaded;
     d88_startup configuration;
     volatile d88_control *control;
-    if(!captured_profile()) {
+    int scanned;
+    const probe_profile *profile=d88_select_firmware(firmware_word,firmware_byte,&scanned);
+    int full_services=profile && profile->id==2u && !scanned;
+    if(!profile ||
+       firmware_word(profile->heap_state)!=0x02500000u ||
+       firmware_word(profile->heap_state+4u)!=0x02700000u) {
         /* The basic SDK GUI prefix is the same as the verified probe. */
-        show("This build requires the captured 9288 firmware. No debug state changed.","D88DEBUG PROFILE");
+        show("No matching original 9288 firmware profile.","D88DEBUG PROFILE");
         return -1;
     }
-    tcb=*(volatile unsigned*)0x022a9820u;
+    tcb=firmware_word(profile->tcb_pointer);
     if((tcb&3u) || tcb<0x02000000u || tcb>0x02500000u-9u*72u ||
-       *(volatile unsigned*)0x022a9850u!=tcb) return -2;
+       firmware_word(profile->id==1u?0x02240db8u:0x022a9850u)!=tcb) return -2;
     slot=tcb+D88_TASK_ID*72u;
     worker=*(volatile unsigned*)(slot+24u);
     if(worker) {
@@ -296,25 +304,25 @@ T_WORD App_Main(void)
             return -3;
         }
         if(control->state==D88_RUNNING || control->state==D88_STARTING) {
-            result=capture_usb_log(control);
-            if(result==-304) {report(control,result);return result;}
+            result=full_services?capture_usb_log(control):0;
+            if(result==-304) {report(full_services,control,result);return result;}
             if(result) usb_log_last_result=result;
             ((void(*)(void))control->stop_address)();
-            report(control,0);return 0;
+            report(full_services,control,0);return 0;
         }
         if(control->state==D88_WAIT_USB || control->state==D88_STOPPING) {
-            report(control,0);return 0;
+            report(full_services,control,0);return 0;
         }
-        if(!disk_idle(tcb)) {
+        if(!disk_idle(profile,tcb)) {
             show_disk_active();return -4;
         }
         result=((int(*)(void))control->start_address)();
-        report(control,result);return result;
+        report(full_services,control,result);return result;
     }
     if(*(volatile unsigned*)(slot+20u) || *(volatile unsigned char*)(slot+63u)) {
         show("Task 8 is not unused. Debug was not started.","D88DEBUG BUSY");return -5;
     }
-    if(!disk_idle(tcb)) {
+    if(!disk_idle(profile,tcb)) {
         show_disk_active();return -4;
     }
     result=resident_image_allocate(&d88_resident_blob,allocate_resident,free_unstarted_resident,&loaded);
@@ -336,5 +344,5 @@ T_WORD App_Main(void)
         free_unstarted_resident(loaded.allocation);return result;
     }
     /* Native TCB/saved context now references this allocation, even on error. */
-    report(control,result);return result;
+    report(full_services,control,result);return result;
 }

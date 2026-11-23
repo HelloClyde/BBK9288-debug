@@ -54,6 +54,8 @@ enum { USB=0x01000000u,MISC=0x00300f20u,TIMER_ENABLE=0x00040273u,
 typedef struct usb_platform_context {
     int state,last_error;
     u32 tcb,original_timer_vector;
+    d88_ros_entries ros;
+    const probe_profile *profile;
     u8 original_misc,timer_enable,usb_enable;
     u8 suspended,irqs_masked,controller_changed,sram_saved,guard_installed,detached;
     u8 clock_changed,lock_fault;
@@ -71,33 +73,34 @@ static int system_call(unsigned operation,int argument)
     return usb_platform_test_syscall(operation,argument);
 #else
     u32 address;
-    if(operation==SYS_LOCK) address=0x021ce8aeu;
-    else if(operation==SYS_UNLOCK) address=0x021ce8d8u;
-    else if(operation==SYS_SUSPEND) address=0x021cfe60u;
-    else address=0x021cfed2u;
+    if(operation==SYS_LOCK) address=owner.ros.lock;
+    else if(operation==SYS_UNLOCK) address=owner.ros.unlock;
+    else if(operation==SYS_SUSPEND) address=owner.ros.suspend;
+    else address=owner.ros.resume;
     if(operation==SYS_SUSPEND || operation==SYS_RESUME)
         return ((int (*)(int))address)(argument);
     return ((int (*)(void))address)();
 #endif
 }
 
+static u32 platform_word(u32 address) { return R32(address); }
+static u8 platform_byte(u32 address) { return R8(address); }
+
 static int profile_valid(void)
 {
-    const probe_profile *profile=&profiles[1];
-    unsigned i,b;
-    for(i=0;i<6u;i++) if(R32(0x02000200u+i*4u)!=profile->tables[i]) return 0;
-    for(i=0;i<3u;i++) for(b=0;b<40u;b++)
-        if(R8(profile->signature_addresses[i]+b)!=profile->signatures[i][b]) return 0;
+    int scanned;
+    const probe_profile *profile=d88_select_firmware(platform_word,platform_byte,&scanned);
+    unsigned index;
+    if(!profile) return 0;
     /* The audited resident linker/loader binds the guard to this heap image. */
-    if(R32(TIMER_VECTOR)!=0x0219c9acu) return 0;
-    if(R32(0x021e81e8u+9u*4u)!=0x021cfe60u ||
-       R32(0x021e81e8u+10u*4u)!=0x021cfed2u ||
-       R32(0x021e81e8u+23u*4u)!=0x021ce8aeu ||
-       R32(0x021e81e8u+24u*4u)!=0x021ce8d8u) return 0;
-    owner.tcb=R32(0x022a9820u);
+    if(R32(TIMER_VECTOR)!=profile->usb_timer_entry) return 0;
+    if(!d88_resolve_usb_ros(profile,platform_word,platform_byte,scanned,&owner.ros)) return 0;
+    owner.tcb=R32(profile->tcb_pointer);
     if(!ram(owner.tcb,9u*72u)) return 0;
     /* The ROS functions use separately initialized aliases of the same base. */
-    if(R32(0x022a9864u)!=owner.tcb || R32(0x022a9868u)!=owner.tcb) return 0;
+    for(index=0;index<2u;++index)
+        if(profile->tcb_aliases[index] && R32(profile->tcb_aliases[index])!=owner.tcb) return 0;
+    owner.profile=profile;
     return 1;
 }
 
@@ -111,16 +114,19 @@ static int bus_valid(void)
 
 static int native_idle(void)
 {
-    return R32(0x024ef004u)==0 && R32(0x02049798u)==0 &&
-           R32(0x020497e0u)==0 && R32(0x0204979cu)==0x00040000u &&
-           R8(0x02000351u)==0;
+    const probe_profile *profile=owner.profile;
+    return R32(profile->usb_desktop)==0 && R32(profile->usb_phase)==0 &&
+           R32(profile->usb_phase2)==0 && R32(profile->usb_io_base)==0x00040000u &&
+           R8(profile->usb_flags+1u)==0;
 }
 
 static int task_identity(void)
 {
     u32 task=owner.tcb+3u*72u;
-    return R32(0x022a9820u)==owner.tcb && R32(task+0x18u)==0x0219c1f2u &&
-           R32(task+0x14u)==0x0202a394u && R8(task+0x3du)==6u;
+    const probe_profile *profile=owner.profile;
+    return R32(profile->tcb_pointer)==owner.tcb &&
+           R32(task+0x18u)==profile->signature_addresses[2] &&
+           R32(task+0x14u)==profile->usb_task_stack && R8(task+0x3du)==6u;
 }
 
 static int connected(void) { return (R8(USB+0x22u)&0x80u)!=0; }
@@ -287,7 +293,7 @@ int usb_platform_claim(void)
     if(system_call(SYS_LOCK,0)!=0) return owner.last_error=USB_PLATFORM_E_LOCK;
     if(!bus_valid() || (R8(MISC)&0x37u)!=0x27u || !native_idle() || !task_identity() ||
        R8(owner.tcb+3u*72u+0x3fu)!=7u ||
-       R32(TIMER_VECTOR)!=0x0219c9acu)
+       R32(TIMER_VECTOR)!=owner.profile->usb_timer_entry)
         return abandon_locked(USB_PLATFORM_E_BUSY);
     owner.state=USB_PLATFORM_CLAIMING;
     owner.original_misc=R8(MISC);

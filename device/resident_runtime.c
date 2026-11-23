@@ -11,6 +11,13 @@
 #include "file_runtime.h"
 #include "app_refresh.h"
 #include "task_compat_signatures.h"
+typedef unsigned int u32;
+typedef unsigned char u8;
+#include "profiles.h"
+static const probe_profile *running_profile;
+static int scanned_profile;
+static u32 resident_word(u32 address) { return *(volatile u32*)address; }
+static u8 resident_byte(u32 address) { return *(volatile u8*)address; }
 
 #ifndef DEBUG_IMAGE_ID
 #define DEBUG_IMAGE_ID 0u
@@ -101,7 +108,7 @@ static void configure_core(void)
     platform.snapshot=snapshot; platform.snapshot_capacity=sizeof(snapshot);
     platform.uptime_ms=uptime; platform.read=read_ram; platform.capture=capture;
     d88_input_reset();
-    if(d88_input_available()) {platform.caps|=DBG_CAP_KEY;platform.key=queue_key;}
+    if(!scanned_profile && d88_input_available()) {platform.caps|=DBG_CAP_KEY;platform.key=queue_key;}
     if(files_diagnostic.enabled) {
         platform.caps|=DBG_CAP_FILES;
         if(d88_app_refresh_available()) platform.caps|=DBG_CAP_APP_REFRESH;
@@ -160,14 +167,15 @@ void resident_worker(void)
     int result,cleanup;
     unsigned budget;
     resident_control.state=D88_STARTING;
-    result=d88_power_idle_begin();
+    result=running_profile->id==2u && !scanned_profile?d88_power_idle_begin():0;
     if(result==0) result=usb_platform_claim();
     if(result==0) result=usb_start();
     if(result==0) result=d88_usb_detach_delay();
     if(result==0) result=usb_platform_check();
     if(result==0 && !resident_control.stop_requested)
         result=usb_attach(D88_USB_DETACH_MS);
-    if(result==0 && !resident_control.stop_requested) result=d88_files_start();
+    if(result==0 && !resident_control.stop_requested && running_profile->id==2u && !scanned_profile)
+        result=d88_files_start();
     if(result==0 && !resident_control.stop_requested) {
         configure_core();
         resident_control.starts++;
@@ -238,28 +246,38 @@ void resident_worker(void)
 
 int resident_start(void)
 {
-    unsigned tcb_base,slot,stack_top,old_current,i;
+    unsigned tcb_base,slot,stack_top,old_current,i,current_address;
+    d88_ros_entries ros;
+    int v15;
     int result;
     if(resident_control.state==D88_RUNNING || resident_control.state==D88_STARTING ||
        resident_control.state==D88_STOPPING || resident_control.state==D88_WAIT_USB) return -101;
-    tcb_base=*(volatile unsigned*)0x022a9820u;
+    running_profile=d88_select_firmware(resident_word,resident_byte,&scanned_profile);
+    if(!running_profile || (unsigned)tpDL_ROS33Table!=resident_word(0x02000200u) ||
+       !d88_resolve_usb_ros(running_profile,resident_word,resident_byte,scanned_profile,&ros)) return -107;
+    v15=running_profile->id==1u;
+    current_address=v15?0x022a9610u:0x02068664u;
+    tcb_base=resident_word(running_profile->tcb_pointer);
     if((tcb_base&3u) || !in_ram(tcb_base,9u*72u) ||
-       *(volatile unsigned*)0x022a9850u!=tcb_base) return -102;
-    if((unsigned)tpDL_ROS33Table->ros33_sta_tsk!=0x021cf9b2u ||
-       (unsigned)tpDL_ROS33Table->ros33_vcre_tsk!=0x021ced06u ||
-       (unsigned)tpDL_ROS33Table->ros33_loc_cpu!=0x021ce8aeu ||
-       (unsigned)tpDL_ROS33Table->ros33_unl_cpu!=0x021ce8d8u) return -107;
+       resident_word(v15?0x02240db8u:0x022a9850u)!=tcb_base) return -102;
+    if((unsigned)tpDL_ROS33Table->ros33_sta_tsk!=(v15?0x02167e0au:0x021cf9b2u) ||
+       (unsigned)tpDL_ROS33Table->ros33_vcre_tsk!=running_profile->signature_addresses[0] ||
+       (unsigned)tpDL_ROS33Table->ros33_loc_cpu!=ros.lock ||
+       (unsigned)tpDL_ROS33Table->ros33_unl_cpu!=ros.unlock) return -107;
+    if(v15) {
+        if(d88_firmware_code_crc(resident_byte,0x02167e0au,194u)!=0x430cc30cu) return -107;
+    } else {
     for(i=0;i<sizeof(sta_entry_signature);i++)
         if(*(volatile unsigned char*)(0x021cf9b2u+i)!=sta_entry_signature[i]) return -107;
     for(i=0;i<sizeof(sta_current_signature);i++)
         if(*(volatile unsigned char*)(0x021cfa52u+i)!=sta_current_signature[i]) return -107;
+    }
     /* loc/unl are not nested locks. Enter only from ordinary task context. */
-    if(*(volatile unsigned char*)0x0206866cu ||
-       (*(volatile unsigned char*)0x0206866du&3u)) return -108;
+    if(resident_byte(current_address+8u) || (resident_byte(current_address+9u)&3u)) return -108;
     slot=tcb_base+D88_TASK_ID*72u;
     stack_top=((unsigned)(worker_stack+sizeof(worker_stack)))&~15u;
     if(tpDL_ROS33Table->ros33_loc_cpu()!=0) return -103;
-    old_current=*(volatile unsigned*)0x02068664u;
+    old_current=resident_word(current_address);
     for(i=1;i<=8u;i++) if(old_current==tcb_base+i*72u) break;
     if(i>8u) {tpDL_ROS33Table->ros33_unl_cpu();return -109;}
     if(!resident_control.task_created) {
@@ -281,7 +299,7 @@ int resident_start(void)
     /* This captured STA stores its target into the scheduler's current TCB.
      * Restore the actual caller before allowing IRQ or dispatch again. The
      * full-frame bug and this correction are covered by native ROS testing. */
-    *(volatile unsigned*)0x02068664u=old_current;
+    *(volatile unsigned*)current_address=old_current;
     tpDL_ROS33Table->ros33_unl_cpu();
     if(result!=0) {resident_control.state=D88_FAILED;resident_control.last_error=(d88_word)result;}
     return result;

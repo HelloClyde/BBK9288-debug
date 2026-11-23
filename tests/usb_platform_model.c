@@ -144,6 +144,26 @@ void model_reset(void)
     memory[USB+0x20]=0x12;memory[USB+0x22]=0x40;memory[USB+0x23]=0x81;
     for(i=0;i<1024;i++) initial_sram[i]=shared_sram[i]=(u8)(i*71u+17u);
 }
+void model_use_original_v15(void)
+{
+    const probe_profile *profile=&profiles[0];
+    const u32 tcb=0x022a9ae0u, task=tcb+3u*72u;
+    unsigned index;
+    for(index=0;index<6u;++index) set32(0x02000200u+4u*index,profile->tables[index]);
+    for(index=0;index<3u;++index)
+        memcpy(memory+profile->signature_addresses[index],profile->signatures[index],40);
+    set32(TIMER_VECTOR,profile->usb_timer_entry);
+    set32(profile->tables[0]+9u*4u,0x021682b8u);
+    set32(profile->tables[0]+10u*4u,0x0216832au);
+    set32(profile->tables[0]+23u*4u,0x02166d06u);
+    set32(profile->tables[0]+24u*4u,0x02166d30u);
+    set32(profile->tcb_pointer,tcb);
+    set32(task+0x18u,profile->signature_addresses[2]);
+    set32(task+0x14u,profile->usb_task_stack);
+    memory[task+0x3du]=6u;
+    memory[task+0x3fu]=7u;
+    set32(profile->usb_io_base,0x00040000u);
+}
 void model_write8(u32 a,u8 v) { memory[a]=v; }
 void model_write32(u32 a,u32 v) { set32(a,v); }
 u32 model_read32(u32 a) { return usb_platform_test_read32(a); }

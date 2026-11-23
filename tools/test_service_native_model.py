@@ -64,6 +64,10 @@ class Remote:
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--port',type=int,default=12389)
+    parser.add_argument('--emulator',type=Path,default=ROOT.parent/'bbk9288-qemu/_build/qemu-system-s1c33.exe')
+    parser.add_argument('--boot-rom',type=Path,default=ROOT.parent/'9288-boot-capture/captures/2026-10-01-v3/BOOT0.BIN')
+    parser.add_argument('--source-nand',type=Path,default=ROOT/'build/hardware-profile-emulator/native-no-update.raw')
+    parser.add_argument('--nand-copy',type=Path,help='Use a new, private NAND destination for this run')
     parser.add_argument('--break-at',type=lambda x:int(x,0))
     parser.add_argument('--arm-after',type=lambda x:int(x,0))
     parser.add_argument('--diagnostic-restore-tcb',action='store_true',
@@ -73,15 +77,16 @@ def main():
         help='exercise actual FS through the GUI bridge on a fresh independent NAND copy')
     args=parser.parse_args()
     OUT.mkdir(parents=True,exist_ok=True)
-    nand=OUT/('independent-files-native-no-update.raw' if args.files else 'independent-native-no-update.raw')
-    if args.files or not nand.exists():shutil.copyfile(ROOT/'build/hardware-profile-emulator/native-no-update.raw',nand)
+    nand=args.nand_copy or OUT/('independent-files-native-no-update.raw' if args.files else 'independent-native-no-update.raw')
+    if args.nand_copy and nand.exists():parser.error('--nand-copy must be a new file')
+    if args.files or not nand.exists():shutil.copyfile(args.source_nand,nand)
     symbols=json.loads((OUT/'launcher-symbols.json').read_text())
     manifest=json.loads((OUT/'resident/resident.json').read_text())
     env=dict(os.environ);env['PATH']=r'C:\msys64\ucrt64\bin;'+env.get('PATH','')
     log=(OUT/'qemu.stderr.log').open('w',encoding='utf8')
-    p=subprocess.Popen([str(ROOT.parent/'bbk9288-qemu/_build/qemu-system-s1c33.exe'),
+    p=subprocess.Popen([str(args.emulator),
         '-M',f'bbk9288,usb-connected=off,nand-image={nand.as_posix()},nand-id=0xADDA8015',
-        '-cpu','c33l05,exit-on-halt=off','-bios',str(ROOT.parent/'9288-boot-capture/captures/2026-10-01-v3/BOOT0.BIN'),
+        '-cpu','c33l05,exit-on-halt=off','-bios',str(args.boot_rom),
         '-display','none','-serial','none','-monitor','none','-qmp','stdio','-no-shutdown',
         '-gdb',f'tcp:127.0.0.1:{args.port}'],stdin=subprocess.PIPE,stdout=subprocess.PIPE,
         stderr=log,text=True,encoding='utf8',env=env)

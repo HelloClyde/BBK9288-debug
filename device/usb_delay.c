@@ -6,6 +6,9 @@
  * phase, exceed 63 * 24.917ms > D88_USB_DETACH_MS. No exact MHz is assumed.
  */
 #include "usb_delay.h"
+typedef unsigned int u32;
+typedef unsigned char u8;
+#include "profiles.h"
 
 #ifdef USB_DELAY_TEST
 extern unsigned char usb_delay_test_read8(unsigned address);
@@ -15,7 +18,7 @@ extern int usb_delay_test_wait(unsigned ticks);
 #define R8(a) usb_delay_test_read8(a)
 #define R32(a) usb_delay_test_read32(a)
 #define PSR() usb_delay_test_psr()
-#define WAIT(n) usb_delay_test_wait(n)
+#define WAIT(entry,n) usb_delay_test_wait(n)
 #else
 #define R8(a) (*(volatile unsigned char*)(a))
 #define R32(a) (*(volatile unsigned*)(a))
@@ -26,7 +29,7 @@ static unsigned current_psr(void)
     return psr;
 }
 #define PSR() current_psr()
-#define WAIT(n) ((int(*)(unsigned))0x021cf58eu)(n)
+#define WAIT(entry,n) ((int(*)(unsigned))(entry))(n)
 #endif
 
 static const unsigned char delay_signature[156]={
@@ -80,21 +83,41 @@ static int same_code(unsigned address,const unsigned char *bytes,unsigned size)
 }
 typedef struct {
     unsigned power,source,clock_option;
+    unsigned entry,tick;
 } clock_state;
+static u8 delay_byte(u32 address) { return R8(address); }
+
 static int guard(clock_state *state)
 {
+    unsigned ros=R32(0x02000200u);
     /* Ordinary task context, interrupts enabled, no inherited CPU or dispatch
      * lock. This routine neither takes a lock nor changes timer/USB state. */
+    if((ros&3u) || ros<0x0200021cu || ros>0x02800000u-55u*4u)
+        return D88_USB_DELAY_E_GUARD;
+    if(R32(ros+27u*4u)==0x021679e6u) {
+        if((PSR()&0x710u)!=0x10u || R8(0x022a9618u) ||
+           (R8(0x022a9619u)&7u)) return D88_USB_DELAY_E_CONTEXT;
+        if(R32(ros+54u*4u)!=0x02169610u ||
+           R32(0x02000098u)!=0x02130374u ||
+           d88_firmware_code_crc(delay_byte,0x021679e6u,156u)!=0xa2835cdeu ||
+           d88_firmware_code_crc(delay_byte,0x02169610u,294u)!=0x4239522au ||
+           d88_firmware_code_crc(delay_byte,0x02130374u,44u)!=0x90addbaeu)
+            return D88_USB_DELAY_E_GUARD;
+        state->entry=0x021679e6u;
+        state->tick=0x022a9620u;
+    } else {
     if((PSR()&0x710u)!=0x10u || R8(0x0206866cu) ||
        (R8(0x0206866du)&7u)) return D88_USB_DELAY_E_CONTEXT;
-    if(R32(0x02000200u)!=0x021e81e8u ||
-       R32(0x021e81e8u+27u*4u)!=0x021cf58eu ||
-       R32(0x021e81e8u+54u*4u)!=0x021d11b8u ||
+    if(R32(ros+27u*4u)!=0x021cf58eu ||
+       R32(ros+54u*4u)!=0x021d11b8u ||
        R32(0x02000098u)!=0x02198dbcu || R32(0x022a981cu)!=1u ||
        !same_code(0x021cf58eu,delay_signature,sizeof(delay_signature)) ||
        !same_code(0x021d11b8u,clock_signature,sizeof(clock_signature)) ||
        !same_code(0x02198dbcu,irq_signature,sizeof(irq_signature)))
         return D88_USB_DELAY_E_GUARD;
+    state->entry=0x021cf58eu;
+    state->tick=0x02068674u;
+    }
     /* Include fine/buffer/external-clock bits in the exact control check.
      * The unused legacy 8-bit timer0 ISR also calls sys_clk: reject it. */
     if(R8(0x00040149u)!=0x0fu || read16(0x00048192u)!=0x0124u ||
@@ -112,13 +135,14 @@ int d88_usb_detach_delay(void)
     unsigned start,elapsed;
     int result=guard(&before);
     if(result) return result;
-    start=R32(0x02068674u);
-    result=WAIT(D88_USB_DETACH_TICKS);
+    start=R32(before.tick);
+    result=WAIT(before.entry,D88_USB_DETACH_TICKS);
     if(result!=0) return D88_USB_DELAY_E_INTERRUPTED;
     result=guard(&after);
-    if(result || before.power!=after.power || before.source!=after.source ||
+    if(result || before.entry!=after.entry || before.tick!=after.tick ||
+       before.power!=after.power || before.source!=after.source ||
        before.clock_option!=after.clock_option) return D88_USB_DELAY_E_CHANGED;
-    elapsed=R32(0x02068674u)-start;
+    elapsed=R32(after.tick)-start;
     /* Catch a zero return without the promised number of native units,
      * backwards system-time changes, and early forced release. */
     if(elapsed<D88_USB_DETACH_TICKS || elapsed>0x7fffffffu)

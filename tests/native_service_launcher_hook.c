@@ -12,3 +12,11 @@ long guest_launcher_hook(unsigned a,unsigned b,unsigned c,unsigned d)
     guest_hook_status=2;
     return 0;
 }
+
+__attribute__((noreturn,used)) void guest_launch_v15(void)
+{
+    guest_hook_status=1;
+    guest_hook_result=DL_AppMain(0);
+    guest_hook_status=2;
+    for(;;) __asm__ volatile("nop");
+}
