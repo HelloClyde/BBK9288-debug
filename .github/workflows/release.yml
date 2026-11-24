@@ -54,16 +54,16 @@ jobs:
         run: python -m unittest discover -s tests -p 'test_*.py' -v
       - name: Build device, frozen GUI, notices and installation ZIP
         run: |
+          $mode = @('--candidate')
           if ($env:GITHUB_REF_TYPE -eq 'tag') {
-            python scripts/build_release.py --tag "$env:GITHUB_REF_NAME"
-          } else {
-            python scripts/build_release.py
+            $mode = @('--tag', $env:GITHUB_REF_NAME)
           }
+          python scripts/build_release.py @mode
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/verify_release.py dist/release --source-sha "$env:GITHUB_SHA"
+          python scripts/verify_release.py dist/release --source-sha "$env:GITHUB_SHA" @mode
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: BBK9288-debug-release
+          name: ${{ github.ref_type == 'tag' && 'BBK9288-debug-release' || 'BBK9288-debug-candidate' }}
           path: dist/release/*
           if-no-files-found: error
           retention-days: 14

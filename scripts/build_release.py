@@ -98,7 +98,9 @@ def main() -> None:
     parser.add_argument("--sdk", type=Path, default=ROOT / "build/dependencies/sdk")
     parser.add_argument("--toolchain", type=Path, default=ROOT / "build/dependencies/toolchain")
     parser.add_argument("--output", type=Path, default=ROOT / "dist/release")
-    parser.add_argument("--tag", help="Require this tag to match VERSION")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--tag", help="Require this tag to match VERSION")
+    mode.add_argument("--candidate", action="store_true", help="Package an unreviewed CI build")
     args = parser.parse_args()
     if sys.platform != "win32":
         parser.error("The first release builds the Windows client on Windows")
@@ -109,8 +111,11 @@ def main() -> None:
     if output.exists() and any(output.iterdir()):
         parser.error("Release output must be empty; use a new directory for another build")
     output.mkdir(parents=True, exist_ok=True)
-    run([sys.executable, "scripts/build_device.py", "--sdk", args.sdk.resolve(),
-         "--toolchain", args.toolchain.resolve()])
+    device_build = [sys.executable, "scripts/build_device.py", "--sdk", args.sdk.resolve(),
+                    "--toolchain", args.toolchain.resolve()]
+    if args.candidate:
+        device_build.append("--record-candidate")
+    run(device_build)
     work = ROOT / "build" / ("release-" + version)
     work.mkdir(parents=True, exist_ok=False)
     licenses = work / "licenses"

@@ -19,7 +19,7 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def verify(directory: Path, version: str, source_sha: str | None = None) -> dict:
+def verify(directory: Path, version: str, source_sha: str | None = None, *, candidate: bool = False) -> dict:
     archive_name = f"BBK9288-debug-{version}-windows-x64.zip"
     expected = {"9288Debug.exe", "9288Debug-PC.exe", archive_name,
                 "build-report.json", "SHA256SUMS.txt"}
@@ -34,24 +34,32 @@ def verify(directory: Path, version: str, source_sha: str | None = None) -> dict
     for name, digest in entries.items():
         require(hashlib.sha256((directory / name).read_bytes()).hexdigest() == digest,
                 "Asset SHA-256 mismatch: " + name)
-    expected_runtime = runtime_record()
-    require(expected_runtime.get("version") == version, "Wrong runtime record version")
     device = (directory / "9288Debug.exe").read_bytes()
     container = inspect(device)
-    require(hashlib.sha256(device[container["code_offset"]:]).hexdigest() == expected_runtime["payload_sha256"],
-            "Actual released payload differs from this version's reviewed runtime")
+    payload_hash = hashlib.sha256(device[container["code_offset"]:]).hexdigest()
     report = json.loads((directory / "build-report.json").read_text(encoding="utf-8"))
     require(report.get("result") == "PASS" and report.get("version") == version, "Invalid build result/version")
     if source_sha:
         require(report.get("source_sha") == source_sha, "Wrong release source commit")
-    require(report.get("device", {}).get("result") == "PASS", "Unapproved runtime candidate")
-    require(expected_runtime.get("device_sha256") == entries["9288Debug.exe"], "Wrong recorded device executable")
-    require(report.get("device", {}).get("sha256") == entries["9288Debug.exe"], "Wrong device evidence")
-    require(report["device"].get("image_id") == expected_runtime["image_id"], "Wrong runtime image identity")
-    require(report["device"].get("matches_recorded_runtime") is True, "Missing runtime byte comparison")
-    require(report["device"].get("runtime_source_sha256") == expected_runtime["runtime_source_sha256"], "Wrong runtime source evidence")
-    for key in ("physical_app_refresh_verified", "container_hardware_retested"):
-        require(report["device"].get(key) is bool(expected_runtime.get(key)), "Wrong physical verification scope: " + key)
+    device_report = report.get("device", {})
+    require(device_report.get("sha256") == entries["9288Debug.exe"], "Wrong device evidence")
+    require(device_report.get("payload_sha256") == payload_hash, "Wrong device payload evidence")
+    if candidate and device_report.get("result") == "CANDIDATE":
+        require(device_report.get("matches_recorded_runtime") is False, "Candidate claims a reviewed runtime match")
+        require(device_report.get("physical_app_refresh_verified") is False and
+                device_report.get("container_hardware_retested") is False, "Candidate claims physical verification")
+    else:
+        expected_runtime = runtime_record()
+        require(expected_runtime.get("version") == version, "Wrong runtime record version")
+        require(device_report.get("result") == "PASS", "Unapproved runtime candidate")
+        require(payload_hash == expected_runtime["payload_sha256"],
+                "Actual released payload differs from this version's reviewed runtime")
+        require(expected_runtime.get("device_sha256") == entries["9288Debug.exe"], "Wrong recorded device executable")
+        require(device_report.get("image_id") == expected_runtime["image_id"], "Wrong runtime image identity")
+        require(device_report.get("matches_recorded_runtime") is True, "Missing runtime byte comparison")
+        require(device_report.get("runtime_source_sha256") == expected_runtime["runtime_source_sha256"], "Wrong runtime source evidence")
+        for key in ("physical_app_refresh_verified", "container_hardware_retested"):
+            require(device_report.get(key) is bool(expected_runtime.get(key)), "Wrong physical verification scope: " + key)
     require(report.get("frozen_gui", {}).get("result") == "PASS" and
             report["frozen_gui"].get("serial_opened") is False, "Missing device-free frozen GUI test")
     require(report.get("firmware_or_nand_included") is False and
@@ -86,13 +94,15 @@ def verify(directory: Path, version: str, source_sha: str | None = None) -> dict
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("directory", type=Path)
-    parser.add_argument("--tag")
+    mode = parser.add_mutually_exclusive_group()
+    mode.add_argument("--tag")
+    mode.add_argument("--candidate", action="store_true", help="Allow a CI candidate while checking all packaged assets")
     parser.add_argument("--source-sha")
     args = parser.parse_args()
     version = (ROOT / "VERSION").read_text(encoding="ascii").strip()
     if args.tag and args.tag != "v" + version:
         parser.error("Tag does not match VERSION")
-    print(json.dumps(verify(args.directory, version, args.source_sha)))
+    print(json.dumps(verify(args.directory, version, args.source_sha, candidate=args.candidate)))
 
 
 if __name__ == "__main__":
